@@ -8,8 +8,11 @@ const {
   desktopCapturer,
   systemPreferences,
   shell,
+  dialog,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
+const https = require("https");
 const Tesseract = require("tesseract.js");
 const Store = require("electron-store");
 
@@ -37,18 +40,229 @@ let captureWindow = null;
 const supportedLanguages = [
   { code: "auto", name: "Auto-detect", flag: "🌍" },
   { code: "eng", name: "English", flag: "🇺🇸" },
-  { code: "km", name: "Khmer", flag: "🇰🇭" },
-  { code: "chi_sim", name: "Chinese (Simplified)", flag: "🇨🇳" },
-  { code: "spa", name: "Spanish", flag: "🇪🇸" },
-  { code: "fra", name: "French", flag: "🇫🇷" },
-  { code: "deu", name: "German", flag: "🇩🇪" },
-  { code: "jpn", name: "Japanese", flag: "🇯🇵" },
-  { code: "kor", name: "Korean", flag: "🇰🇷" },
+  { code: "khm", name: "Khmer", flag: "🇰🇭" },
+  { code: "khm+eng", name: "Khmer + English", flag: "🇰🇭🇺🇸" },
 ];
 
-async function checkScreenRecordingPermission() {
-  console.log("🔍 Checking screen recording permission...");
+// Function to download language data
+async function downloadLanguageData(languageCode) {
+  const baseUrl = "https://github.com/tesseract-ocr/tessdata/raw/main/";
+  const url = `${baseUrl}${languageCode}.traineddata`;
 
+  const filePath = path.join(__dirname, `${languageCode}.traineddata`);
+
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(filePath);
+
+    https
+      .get(url, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download: ${response.statusCode}`));
+          return;
+        }
+
+        response.pipe(file);
+
+        file.on("finish", () => {
+          file.close();
+          console.log(`✅ Downloaded ${languageCode}.traineddata successfully`);
+          resolve(filePath);
+        });
+
+        file.on("error", (err) => {
+          fs.unlink(filePath, () => {}); // Delete the file on error
+          reject(err);
+        });
+      })
+      .on("error", (err) => {
+        reject(err);
+      });
+  });
+}
+
+// Function to handle language data availability and automatic download
+async function handleLanguageDataAvailability(
+  detectedLanguage,
+  selectedLanguage
+) {
+  // If it's English, no need to check for data files
+  if (detectedLanguage === "eng") {
+    return "eng";
+  }
+
+  // Get language mapping information
+  const languageInfo = getLanguageInfo(detectedLanguage);
+  const { dataFileName, languageName } = languageInfo;
+
+  const dataPath = path.join(__dirname, `${dataFileName}.traineddata`);
+
+  // Check if language data file exists
+  if (fs.existsSync(dataPath)) {
+    console.log(`✅ ${languageName} language data found`);
+    return dataFileName;
+  }
+
+  console.log(`⚠️ ${languageName} language data not found`);
+
+  // Handle missing language data based on how the language was selected
+  if (selectedLanguage === "auto") {
+    // Check user preferences for auto-download
+    const autoDownload = store.get("autoDownloadLanguageData");
+    const fallbackToEnglish = store.get("fallbackToEnglish");
+
+    if (autoDownload === true) {
+      // User previously chose to auto-download
+      console.log(
+        `🚀 Auto-downloading ${languageName} language data based on user preference...`
+      );
+
+      // Send progress update to UI
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+          mainWindow.webContents.send(
+            "ocr-status",
+            `Auto-downloading ${languageName} language data...`
+          );
+        } catch (error) {
+          console.error("Failed to send download status:", error);
+        }
+      }
+
+      try {
+        await downloadLanguageData(dataFileName);
+        console.log(`✅ ${languageName} language data downloaded successfully`);
+        return dataFileName;
+      } catch (downloadError) {
+        console.error(`❌ Auto-download failed:`, downloadError);
+        console.log("🔄 Falling back to English OCR");
+        return "eng";
+      }
+    } else if (fallbackToEnglish === true) {
+      // User previously chose to always use English
+      console.log(`🔄 Using English OCR based on user preference`);
+      return "eng";
+    } else {
+      // No preference set - prompt user
+      try {
+        const userChoice = await promptLanguageDataDownload(
+          dataFileName,
+          languageName
+        );
+
+        if (userChoice === 0) {
+          // Download
+          console.log(`📥 Downloading ${languageName} language data...`);
+
+          // Send progress update to UI
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try {
+              mainWindow.webContents.send(
+                "ocr-status",
+                `Downloading ${languageName} language data...`
+              );
+            } catch (error) {
+              console.error("Failed to send download status:", error);
+            }
+          }
+
+          await downloadLanguageData(dataFileName);
+          console.log(
+            `✅ ${languageName} language data downloaded successfully`
+          );
+
+          // Send completion update to UI
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try {
+              mainWindow.webContents.send(
+                "ocr-status",
+                `Starting OCR with ${languageName}...`
+              );
+            } catch (error) {
+              console.error("Failed to send OCR status:", error);
+            }
+          }
+
+          return dataFileName;
+        } else if (userChoice === 1) {
+          // Use English Instead
+          console.log(
+            `🔄 User chose to use English instead of ${languageName}`
+          );
+          return "eng";
+        } else {
+          // Cancel
+          console.log("❌ User cancelled OCR operation");
+          throw new Error("OCR operation cancelled by user");
+        }
+      } catch (downloadError) {
+        console.error(
+          `❌ Failed to download ${languageName} language data:`,
+          downloadError
+        );
+        console.log("🔄 Falling back to English OCR");
+        return "eng";
+      }
+    }
+  } else {
+    // Manually selected language but data is missing - fall back to English
+    console.log(
+      `🔄 Falling back to English OCR (${languageName} data not available)`
+    );
+    return "eng";
+  }
+}
+
+// Function to get language information (data file name and display name)
+function getLanguageInfo(languageCode) {
+  const languageMap = {
+    khm: { dataFileName: "khm", languageName: "Khmer" },
+    chi_sim: { dataFileName: "chi_sim", languageName: "Chinese (Simplified)" },
+    spa: { dataFileName: "spa", languageName: "Spanish" },
+    fra: { dataFileName: "fra", languageName: "French" },
+    deu: { dataFileName: "deu", languageName: "German" },
+    jpn: { dataFileName: "jpn", languageName: "Japanese" },
+    kor: { dataFileName: "kor", languageName: "Korean" },
+    ara: { dataFileName: "ara", languageName: "Arabic" },
+    hin: { dataFileName: "hin", languageName: "Hindi" },
+    rus: { dataFileName: "rus", languageName: "Russian" },
+  };
+
+  return (
+    languageMap[languageCode] || {
+      dataFileName: languageCode,
+      languageName:
+        languageCode.charAt(0).toUpperCase() + languageCode.slice(1),
+    }
+  );
+}
+
+// Function to prompt user for language data download
+async function promptLanguageDataDownload(languageCode, languageName) {
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: "question",
+    buttons: ["Download Now", "Use English Instead", "Cancel"],
+    defaultId: 0,
+    title: "Language Data Required",
+    message: `${languageName} Language Data Detected`,
+    detail: `The OCR detected ${languageName} text, but the language data file is not available locally.\n\nWould you like to download it now for better OCR accuracy?\n\n• Download size: ~10-15MB\n• One-time download\n• Improves accuracy for ${languageName} text`,
+    checkboxLabel: "Remember my choice for auto-detected languages",
+    checkboxChecked: false,
+  });
+
+  // Store user preference if checkbox was checked
+  if (result.checkboxChecked) {
+    if (result.response === 0) {
+      store.set("autoDownloadLanguageData", true);
+    } else if (result.response === 1) {
+      store.set("autoDownloadLanguageData", false);
+      store.set("fallbackToEnglish", true);
+    }
+  }
+
+  return result.response;
+}
+
+async function checkScreenRecordingPermission() {
   if (process.platform !== "darwin") {
     console.log("✅ Non-macOS platform, permission granted by default");
     return true;
@@ -498,7 +712,7 @@ async function processOCR(imageData) {
           const detectedScript = detectionResult.data.script;
           console.log("📝 Detected script:", detectedScript);
 
-          // Map common scripts to languages
+          // Map common scripts to languages (using consistent data file names)
           const scriptToLanguage = {
             Latin: "eng",
             Han: "chi_sim",
@@ -508,27 +722,44 @@ async function processOCR(imageData) {
             Arabic: "ara",
             Devanagari: "hin",
             Cyrillic: "rus",
-            Khmer: "km",
-            Cambodia: "km",
+            Khmer: "khm",
+            Cambodia: "khm",
+            Cambodian: "khm",
           };
 
-          finalLanguage = scriptToLanguage[detectedScript] || "eng";
+          finalLanguage = scriptToLanguage[detectedScript] || "khm+eng";
+          console.log(
+            `🎯 Mapped script "${detectedScript}" to language: ${finalLanguage}`
+          );
         } else {
-          console.log("⚠️ Script detection failed, falling back to English");
-          finalLanguage = "eng";
+          console.log(
+            "⚠️ Script detection failed, trying Khmer+English combination"
+          );
+          finalLanguage = "khm+eng";
         }
       } catch (detectionError) {
         console.warn("⚠️ Auto-detection failed:", detectionError.message);
-        console.log("🔄 Falling back to English for OCR");
-        finalLanguage = "eng";
+        console.log(
+          "🔄 Falling back to Khmer+English combination for better coverage"
+        );
+        finalLanguage = "khm+eng";
       }
     }
 
     // Process with Tesseract with enhanced options
     console.log("🔍 Starting Tesseract OCR with language:", finalLanguage);
-    const {
-      data: { text, confidence },
-    } = await Tesseract.recognize(tempPath, finalLanguage, {
+
+    // Handle language data availability and download
+    let ocrLanguage = await handleLanguageDataAvailability(
+      finalLanguage,
+      selectedLanguage
+    );
+
+    console.log("🎯 Final OCR language:", ocrLanguage);
+
+    // Create a worker with proper configuration for local language data
+    const worker = await Tesseract.createWorker(ocrLanguage, 1, {
+      langPath: path.join(__dirname), // Use local language data files
       logger: (m) => {
         if (m.status === "recognizing text") {
           console.log(
@@ -543,9 +774,13 @@ async function processOCR(imageData) {
           }
         }
       },
-      tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
     });
+
+    const {
+      data: { text, confidence },
+    } = await worker.recognize(tempPath);
+
+    await worker.terminate();
 
     console.log("✅ OCR completed successfully");
     console.log("📊 OCR confidence:", confidence);
@@ -792,11 +1027,13 @@ class SelfCapturePreventionManager {
       return sources;
     }
 
-    console.log(`🔍 Filtering ${sources.length} sources to exclude app windows`);
-    
+    console.log(
+      `🔍 Filtering ${sources.length} sources to exclude app windows`
+    );
+
     const filteredSources = [];
     const appWindowIds = new Set();
-    
+
     // Collect all app window IDs
     for (const { window } of this.appWindows) {
       if (window && !window.isDestroyed()) {
@@ -804,10 +1041,15 @@ class SelfCapturePreventionManager {
           const windowId = window.getMediaSourceId();
           if (windowId) {
             appWindowIds.add(windowId);
-            console.log(`🛡️ Added app window ID to exclusion list: ${windowId}`);
+            console.log(
+              `🛡️ Added app window ID to exclusion list: ${windowId}`
+            );
           }
         } catch (error) {
-          console.warn("⚠️ Could not get media source ID for app window:", error.message);
+          console.warn(
+            "⚠️ Could not get media source ID for app window:",
+            error.message
+          );
         }
       }
     }
@@ -818,10 +1060,15 @@ class SelfCapturePreventionManager {
         const overlayId = this.overlayWindow.getMediaSourceId();
         if (overlayId) {
           appWindowIds.add(overlayId);
-          console.log(`🛡️ Added overlay window ID to exclusion list: ${overlayId}`);
+          console.log(
+            `🛡️ Added overlay window ID to exclusion list: ${overlayId}`
+          );
         }
       } catch (error) {
-        console.warn("⚠️ Could not get media source ID for overlay window:", error.message);
+        console.warn(
+          "⚠️ Could not get media source ID for overlay window:",
+          error.message
+        );
       }
     }
 
@@ -830,11 +1077,15 @@ class SelfCapturePreventionManager {
       if (!appWindowIds.has(source.id)) {
         filteredSources.push(source);
       } else {
-        console.log(`🚫 Excluded app window from sources: ${source.name} (${source.id})`);
+        console.log(
+          `🚫 Excluded app window from sources: ${source.name} (${source.id})`
+        );
       }
     }
 
-    console.log(`✅ Filtered sources: ${filteredSources.length}/${sources.length} sources remaining`);
+    console.log(
+      `✅ Filtered sources: ${filteredSources.length}/${sources.length} sources remaining`
+    );
     return filteredSources;
   }
 
@@ -973,10 +1224,10 @@ class CaptureManager {
 
       // Process the image with adjusted bounds
       const result = await this.processImage(thumbnailBounds, thumbnailDataUrl);
-      
+
       // Restore app windows after successful capture
       await this.selfCapturePreventionManager.restoreAppWindows();
-      
+
       return result;
     } catch (error) {
       // Restore app windows even if capture fails
