@@ -16,7 +16,7 @@ const Store = require("electron-store");
 // Initialize configuration store
 const store = new Store({
   defaults: {
-    language: "eng",
+    language: "auto",
     shortcutKey: "CommandOrControl+Shift+2",
     permissionsGranted: false,
     captureMode: "area", // "fullscreen" or "area"
@@ -35,6 +35,7 @@ let captureWindow = null;
 
 // Supported OCR languages
 const supportedLanguages = [
+  { code: "auto", name: "Auto-detect", flag: "🌍" },
   { code: "eng", name: "English", flag: "🇺🇸" },
   { code: "km", name: "Khmer", flag: "🇰🇭" },
   { code: "chi_sim", name: "Chinese (Simplified)", flag: "🇨🇳" },
@@ -72,7 +73,6 @@ async function checkScreenRecordingPermission() {
 
     const hasPermission = mediaStatus === "granted" && hasAccess;
     store.set("permissionsGranted", hasPermission);
-    console.log("🎯 Final permission status:", hasPermission);
 
     return hasPermission;
   } catch (error) {
@@ -133,6 +133,9 @@ function createMainWindow() {
     maximizable: false,
     fullscreenable: false,
   });
+
+  // Register main window with capture manager
+  captureManager.registerWindow(mainWindow, 'main');
 
   mainWindow.loadFile("index.html");
 
@@ -254,8 +257,6 @@ ipcMain.on("start-capture", async () => {
       await captureFullScreen();
     }, 300);
   } else {
-    console.log("🎯 Starting area capture mode with system-wide overlay");
-
     // Hide main window
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.hide();
@@ -270,16 +271,26 @@ ipcMain.on("start-capture", async () => {
 function createOverlayWindow() {
   console.log("🌐 Creating system-wide overlay window");
 
-  // Get primary display dimensions
+  // Get primary display dimensions and bounds
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
+  const { width, height } = primaryDisplay.bounds;
+  const { x: displayX, y: displayY } = primaryDisplay.bounds;
+  const workArea = primaryDisplay.workArea;
 
-  // Create overlay window
+  console.log("📺 Display bounds:", {
+    x: displayX,
+    y: displayY,
+    width,
+    height,
+  });
+  console.log("📺 Work area:", workArea);
+
+  // Create overlay window positioned at work area to avoid menu bar
   const overlayWindow = new BrowserWindow({
-    width: width,
-    height: height,
-    x: 0,
-    y: 0,
+    width: workArea.width,
+    height: workArea.height,
+    x: workArea.x,
+    y: workArea.y,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -302,6 +313,9 @@ function createOverlayWindow() {
 
   // Make window ignore mouse events except for selection
   overlayWindow.setIgnoreMouseEvents(false);
+
+  // Register the overlay window with capture manager
+  captureManager.setOverlayWindow(overlayWindow);
 
   // Load overlay HTML
   overlayWindow.loadFile(path.join(__dirname, "overlay.html"));
@@ -425,12 +439,22 @@ async function processOCR(imageData) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
+    // Create debug directory for permanent image storage
+    const debugDir = path.join(__dirname, "debug-images");
+    if (!fs.existsSync(debugDir)) {
+      fs.mkdirSync(debugDir, { recursive: true });
+    }
+
     // Save temporary file with timestamp to avoid conflicts
     const timestamp = Date.now();
     const tempPath = path.join(tempDir, `capture_${timestamp}.png`);
+    const debugPath = path.join(debugDir, `debug_capture_${timestamp}.png`);
+    
     fs.writeFileSync(tempPath, buffer);
+    fs.writeFileSync(debugPath, buffer);
 
     console.log("💾 Temporary image saved:", tempPath);
+    console.log("💾 Debug image saved permanently:", debugPath);
 
     // Verify file was written correctly
     const stats = fs.statSync(tempPath);
@@ -444,11 +468,55 @@ async function processOCR(imageData) {
     const selectedLanguage = store.get("language");
     console.log("🌐 Selected language:", selectedLanguage);
 
+    let finalLanguage = selectedLanguage;
+
+    // Handle auto-detection properly
+    if (selectedLanguage === "auto") {
+      console.log("🔍 Attempting automatic language detection...");
+      try {
+        // First, try to detect orientation and script
+        const detectionResult = await Tesseract.detect(tempPath);
+        console.log("📊 Detection result:", detectionResult);
+
+        if (
+          detectionResult &&
+          detectionResult.data &&
+          detectionResult.data.script
+        ) {
+          const detectedScript = detectionResult.data.script;
+          console.log("📝 Detected script:", detectedScript);
+
+          // Map common scripts to languages
+          const scriptToLanguage = {
+            Latin: "eng",
+            Han: "chi_sim",
+            Hiragana: "jpn",
+            Katakana: "jpn",
+            Hangul: "kor",
+            Arabic: "ara",
+            Devanagari: "hin",
+            Cyrillic: "rus",
+            Khmer: "km",
+            Cambodia: "km",
+          };
+
+          finalLanguage = scriptToLanguage[detectedScript] || "eng";
+        } else {
+          console.log("⚠️ Script detection failed, falling back to English");
+          finalLanguage = "eng";
+        }
+      } catch (detectionError) {
+        console.warn("⚠️ Auto-detection failed:", detectionError.message);
+        console.log("🔄 Falling back to English for OCR");
+        finalLanguage = "eng";
+      }
+    }
+
     // Process with Tesseract with enhanced options
-    console.log("🔍 Starting Tesseract OCR...");
+    console.log("🔍 Starting Tesseract OCR with language:", finalLanguage);
     const {
       data: { text, confidence },
-    } = await Tesseract.recognize(tempPath, selectedLanguage, {
+    } = await Tesseract.recognize(tempPath, finalLanguage, {
       logger: (m) => {
         if (m.status === "recognizing text") {
           console.log(
@@ -475,10 +543,10 @@ async function processOCR(imageData) {
       text.substring(0, 100) + (text.length > 100 ? "..." : "")
     );
 
-    // Clean up temp file
+    // Clean up temp file (keep debug image)
     try {
       fs.unlinkSync(tempPath);
-      console.log("🗑️ Temporary file cleaned up");
+      console.log("🗑️ Temporary file cleaned up (debug image preserved)");
     } catch (cleanupError) {
       console.warn("⚠️ Failed to clean up temp file:", cleanupError.message);
     }
@@ -531,150 +599,435 @@ async function processOCR(imageData) {
   }
 }
 
-// IPC handlers for capture window with comprehensive error handling
-ipcMain.on("area-selected", async (event, data) => {
-  console.log("📤 Area selected event received");
-  console.log("📊 Data received:", {
-    hasBounds: !!data?.bounds,
-    bounds: data?.bounds,
-  });
+// ===== COORDINATE SYSTEM MANAGER =====
+class CoordinateSystemManager {
+  constructor() {
+    this.displayInfo = null;
+    this.overlayBounds = null;
+  }
 
-  try {
-    // Process area capture with bounds
-    if (data?.bounds) {
-      try {
-        console.log("🔄 Starting area capture with bounds...");
+  async initialize() {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    this.displayInfo = {
+      scaleFactor: primaryDisplay.scaleFactor,
+      bounds: primaryDisplay.bounds,
+      workArea: primaryDisplay.workArea,
+      menuBarHeight: primaryDisplay.bounds.y + 
+        (primaryDisplay.bounds.height - primaryDisplay.workArea.height - primaryDisplay.workArea.y)
+    };
+    
+    console.log('📐 Coordinate system initialized:', this.displayInfo);
+    return this.displayInfo;
+  }
 
-        // Hide overlay window before capture to avoid capturing it
-        if (captureWindow && !captureWindow.isDestroyed()) {
-          console.log("🙈 Hiding overlay window for capture");
-          captureWindow.hide();
-        }
+  setOverlayBounds(bounds) {
+    this.overlayBounds = bounds;
+  }
 
-        // Wait a moment for the overlay to fully hide
-        await new Promise(resolve => setTimeout(resolve, 100));
+  transformBounds(rawBounds) {
+    if (!this.displayInfo) {
+      throw new Error('Coordinate system not initialized');
+    }
 
-        // Get desktop sources directly in main process
-        const sources = await desktopCapturer.getSources({
-          types: ["screen"],
-          thumbnailSize: { width: 3840, height: 2160 }, // Higher resolution for better quality
-        });
+    console.log('🔍 DEBUG: Raw bounds from drag:', rawBounds);
+    console.log('🔍 DEBUG: Overlay bounds set?', !!this.overlayBounds);
+    console.log('🔍 DEBUG: Display info:', this.displayInfo);
 
-        if (sources.length === 0) {
-          throw new Error("No screen sources available");
-        }
+    // FIXED: Proper coordinate handling for overlay window
+    let actualBounds;
+    
+    if (this.overlayBounds) {
+      // The coordinates from overlay.html are already in global screen coordinates
+      // They are already correct and don't need menu bar adjustment
+      actualBounds = {
+        x: rawBounds.x,
+        y: rawBounds.y, // NO menu bar adjustment needed - overlay gives global coords
+        width: rawBounds.width,
+        height: rawBounds.height,
+      };
+      console.log('🔍 DEBUG: Using overlay coordinates (already global)');
+    } else {
+      // For main window drag selection, coordinates are relative to the window
+      // We need to add the work area offset to convert to global coordinates
+      actualBounds = {
+        x: rawBounds.x + this.displayInfo.workArea.x,
+        y: rawBounds.y + this.displayInfo.workArea.y,
+        width: rawBounds.width,
+        height: rawBounds.height,
+      };
+      console.log('🔍 DEBUG: Using main window coordinates, adjusted for work area');
+    }
 
-        console.log(`📺 Found ${sources.length} screen sources`);
+    console.log('🔍 DEBUG: Actual bounds after adjustment:', actualBounds);
 
-        // Get display info for scaling
-        const primaryDisplay = screen.getPrimaryDisplay();
-        const scaleFactor = primaryDisplay.scaleFactor;
+    // Scale for high DPI displays
+    const scaledBounds = {
+      x: Math.round(actualBounds.x * this.displayInfo.scaleFactor),
+      y: Math.round(actualBounds.y * this.displayInfo.scaleFactor),
+      width: Math.round(actualBounds.width * this.displayInfo.scaleFactor),
+      height: Math.round(actualBounds.height * this.displayInfo.scaleFactor),
+    };
 
-        // Scale the bounds for high DPI displays
-        const scaledBounds = {
-          x: Math.round(data.bounds.x * scaleFactor),
-          y: Math.round(data.bounds.y * scaleFactor),
-          width: Math.round(data.bounds.width * scaleFactor),
-          height: Math.round(data.bounds.height * scaleFactor),
-        };
+    console.log('🔍 DEBUG: Scaled bounds for capture:', scaledBounds);
 
-        console.log("📏 Original bounds:", data.bounds);
-        console.log("📏 Scaled bounds:", scaledBounds);
-        console.log("📏 Scale factor:", scaleFactor);
+    return { actualBounds, scaledBounds };
+  }
 
-        // Use the primary screen source (usually the first one)
-        const primarySource = sources[0];
-        const thumbnail = primarySource.thumbnail;
+  logDebugInfo(rawBounds) {
+    console.log('🖥️ Display info:');
+    console.log('  Display bounds:', this.displayInfo.bounds);
+    console.log('  Work area:', this.displayInfo.workArea);
+    console.log('  Menu bar height:', this.displayInfo.menuBarHeight);
+    console.log('  Scale factor:', this.displayInfo.scaleFactor);
+    console.log('  Overlay bounds:', this.overlayBounds);
+  }
+}
 
-        // Convert thumbnail to image data
-        const thumbnailDataUrl = thumbnail.toDataURL();
+// ===== SELF-CAPTURE PREVENTION MANAGER =====
+class SelfCapturePreventionManager {
+  constructor() {
+    this.appWindows = new Set();
+    this.overlayWindow = null;
+  }
 
-        // Create a simple image processing function
-        const processImage = () => {
-          return new Promise((resolve, reject) => {
-            console.log("🖼️ Creating image processing window...");
+  registerWindow(window, type = 'main') {
+    this.appWindows.add({ window, type });
+    console.log(`🛡️ Registered ${type} window for self-capture prevention`);
+  }
 
-            // Create a hidden window for image processing
-            const processingWin = new BrowserWindow({
-              show: false,
-              webPreferences: {
-                nodeIntegration: true,
-                contextIsolation: false,
-                webSecurity: false, // Allow data URLs
-              },
-            });
+  setOverlayWindow(window) {
+    this.overlayWindow = window;
+    console.log('🛡️ Overlay window registered for self-capture prevention');
+  }
 
-            console.log("✅ Image processing window created");
+  async hideAllAppWindows() {
+    console.log('🙈 Hiding all application windows to prevent self-capture');
+    
+    const hidePromises = [];
+    
+    // Hide overlay window first
+    if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+      hidePromises.push(new Promise(resolve => {
+        this.overlayWindow.hide();
+        setTimeout(resolve, 50);
+      }));
+    }
 
-            // Handle processing result
-            console.log("🔗 Setting up IPC handlers for image processing...");
-            ipcMain.once("image-processing-complete", (event, imageData) => {
-              console.log(
-                "✅ Image processing completed, data length:",
-                imageData.length
-              );
-              processingWin.close();
-              resolve(imageData);
-            });
+    // Hide other app windows
+    for (const { window, type } of this.appWindows) {
+      if (window && !window.isDestroyed() && window.isVisible()) {
+        hidePromises.push(new Promise(resolve => {
+          window.hide();
+          console.log(`🙈 Hidden ${type} window`);
+          setTimeout(resolve, 50);
+        }));
+      }
+    }
 
-            ipcMain.once("image-processing-error", (event, error) => {
-              console.error("❌ Image processing error:", error);
-              processingWin.close();
-              reject(new Error(error));
-            });
+    await Promise.all(hidePromises);
+    
+    // Additional delay to ensure windows are fully hidden
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('✅ All application windows hidden');
+  }
 
-            ipcMain.once("image-processor-ready", () => {
-              console.log("🎯 Image processor ready, sending data...");
-              processingWin.webContents.send("process-image", {
-                bounds: scaledBounds,
-                imageDataUrl: thumbnailDataUrl,
-              });
-            });
+  async restoreAppWindows() {
+    console.log('👁️ Restoring application windows');
+    
+    for (const { window, type } of this.appWindows) {
+      if (window && !window.isDestroyed()) {
+        window.show();
+        console.log(`👁️ Restored ${type} window`);
+      }
+    }
+  }
 
-            // Load HTML file for image processing
-            console.log("📄 Loading image processor HTML file...");
-            processingWin.loadFile(path.join(__dirname, "image-processor.html"));
-          });
-        };
-
-        console.log("🎯 Starting image processing...");
-        const imageData = await processImage();
-        console.log(
-          "✅ Area capture completed successfully, image data length:",
-          imageData.length
-        );
-
-        // Send capture preview to main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          try {
-            // imageData is already a base64 data URL from canvas.toDataURL()
-            mainWindow.webContents.send("capture-preview", imageData, {
-              width: scaledBounds.width,
-              height: scaledBounds.height
-            });
-            console.log("📸 Capture preview sent to main window");
-          } catch (previewError) {
-            console.error("❌ Failed to send capture preview:", previewError);
-          }
-        }
-
-        // Process OCR
-        console.log("🔍 Starting OCR processing...");
-        await processOCR(imageData);
-        console.log("✅ OCR processing completed successfully");
-      } catch (captureError) {
-        console.error("❌ Area capture failed:", captureError);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(
-            "ocr-error",
-            `Capture failed: ${captureError.message}`
-          );
+  isAppWindow(bounds) {
+    // Check if the capture bounds overlap with any visible app window
+    for (const { window } of this.appWindows) {
+      if (window && !window.isDestroyed() && window.isVisible()) {
+        const windowBounds = window.getBounds();
+        if (this.boundsOverlap(bounds, windowBounds)) {
+          console.log('⚠️ Detected potential self-capture attempt');
+          return true;
         }
       }
+    }
+    return false;
+  }
+
+  boundsOverlap(bounds1, bounds2) {
+    return !(bounds1.x + bounds1.width < bounds2.x ||
+             bounds2.x + bounds2.width < bounds1.x ||
+             bounds1.y + bounds1.height < bounds2.y ||
+             bounds2.y + bounds2.height < bounds1.y);
+  }
+}
+
+// ===== CAPTURE MANAGER =====
+class CaptureManager {
+  constructor() {
+    this.coordinateSystem = new CoordinateSystemManager();
+    this.selfCapturePreventionManager = new SelfCapturePreventionManager();
+  }
+
+  async initialize() {
+    await this.coordinateSystem.initialize();
+  }
+
+  registerWindow(window, type) {
+    this.selfCapturePreventionManager.registerWindow(window, type);
+  }
+
+  setOverlayWindow(window) {
+    this.selfCapturePreventionManager.setOverlayWindow(window);
+    this.coordinateSystem.setOverlayBounds(window.getBounds());
+  }
+
+  async processAreaCapture(bounds) {
+    // Initialize coordinate system
+    await this.coordinateSystem.initialize();
+    
+    // Log debug information
+    this.coordinateSystem.logDebugInfo(bounds);
+    
+    // Transform coordinates
+    const { actualBounds, scaledBounds } = this.coordinateSystem.transformBounds(bounds);
+    
+    // Check for self-capture
+    if (this.selfCapturePreventionManager.isAppWindow(actualBounds)) {
+      console.log('🚫 Self-capture detected, aborting');
+      throw new Error('Cannot capture application windows');
+    }
+    
+    // Hide all app windows
+    await this.selfCapturePreventionManager.hideAllAppWindows();
+    
+    try {
+      // Perform the actual capture
+      const imageData = await this.captureScreen(scaledBounds);
+      
+      // Restore app windows
+      await this.selfCapturePreventionManager.restoreAppWindows();
+      
+      return imageData;
+    } catch (error) {
+      // Ensure windows are restored even on error
+      await this.selfCapturePreventionManager.restoreAppWindows();
+      throw error;
+    }
+  }
+
+  async captureScreen(scaledBounds) {
+    console.log('📸 Capturing screen with bounds:', scaledBounds);
+    
+    // Get desktop sources
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 3840, height: 2160 },
+    });
+
+    if (sources.length === 0) {
+      throw new Error("No screen sources available");
+    }
+
+    console.log(`📺 Found ${sources.length} screen sources`);
+
+    // Use the primary screen source
+    const primarySource = sources[0];
+    const thumbnail = primarySource.thumbnail;
+    const thumbnailDataUrl = thumbnail.toDataURL();
+    
+    // Get actual thumbnail dimensions
+    const thumbnailSize = thumbnail.getSize();
+    console.log('🖼️ Thumbnail dimensions:', thumbnailSize);
+    
+    // Get screen dimensions - IMPORTANT: Use the actual display bounds, not screen.getPrimaryDisplay()
+    const displayInfo = this.coordinateSystem.displayInfo;
+    const screenBounds = displayInfo.bounds;
+    console.log('🖥️ Screen dimensions (from display info):', screenBounds);
+    
+    // Calculate scaling factor between thumbnail and screen
+    const thumbnailScaleX = thumbnailSize.width / screenBounds.width;
+    const thumbnailScaleY = thumbnailSize.height / screenBounds.height;
+    
+    console.log('📏 Thumbnail scale factors:', { x: thumbnailScaleX, y: thumbnailScaleY });
+    
+    // IMPORTANT: The scaledBounds are already scaled by displayInfo.scaleFactor
+    // We need to convert them back to logical coordinates before applying thumbnail scaling
+    const logicalBounds = {
+      x: scaledBounds.x / displayInfo.scaleFactor,
+      y: scaledBounds.y / displayInfo.scaleFactor,
+      width: scaledBounds.width / displayInfo.scaleFactor,
+      height: scaledBounds.height / displayInfo.scaleFactor
+    };
+    
+    console.log('🔍 DEBUG: Logical bounds (unscaled):', logicalBounds);
+    
+    // Now apply thumbnail scaling to logical coordinates
+    const thumbnailBounds = {
+      x: Math.round(logicalBounds.x * thumbnailScaleX),
+      y: Math.round(logicalBounds.y * thumbnailScaleY),
+      width: Math.round(logicalBounds.width * thumbnailScaleX),
+      height: Math.round(logicalBounds.height * thumbnailScaleY)
+    };
+    
+    console.log('🔍 DEBUG: Final thumbnail bounds for cropping:', thumbnailBounds);
+    
+    // Process the image with adjusted bounds
+    return await this.processImage(thumbnailBounds, thumbnailDataUrl);
+  }
+
+  async processImage(bounds, imageDataUrl) {
+    return new Promise((resolve, reject) => {
+      console.log("🖼️ Creating image processing window...");
+
+      const processingWin = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false,
+          webSecurity: false,
+        },
+      });
+
+      console.log("✅ Image processing window created");
+
+      // Handle processing result
+      ipcMain.once("image-processing-complete", (event, imageData) => {
+        console.log("✅ Image processing completed, data length:", imageData.length);
+        processingWin.close();
+        resolve(imageData);
+      });
+
+      ipcMain.once("image-processing-error", (event, error) => {
+        console.error("❌ Image processing error:", error);
+        processingWin.close();
+        reject(new Error(error));
+      });
+
+      ipcMain.once("image-processor-ready", () => {
+        processingWin.webContents.send("process-image", {
+          bounds,
+          imageDataUrl,
+        });
+      });
+
+      // Load the image processor
+      processingWin.loadFile(path.join(__dirname, "image-processor.html"));
+    });
+  }
+}
+
+// Global instances
+const captureManager = new CaptureManager();
+
+// Enhanced IPC handlers for window visibility control
+ipcMain.on('hide-main-window', () => {
+  console.log('🙈 Hiding main window for drag capture');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+});
+
+ipcMain.on('show-main-window', () => {
+  console.log('👁️ Showing main window after drag capture');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+// Enhanced IPC handlers for area capture with proper coordinate handling
+ipcMain.on("area-selected", async (event, data) => {
+  console.log("📤 Area selected event received");
+  console.log("📊 Data received:", data);
+
+  try {
+    // Handle both old format (data.bounds) and new format (direct coordinates)
+    let bounds;
+    if (data?.bounds) {
+      bounds = data.bounds;
+    } else if (data?.x !== undefined && data?.y !== undefined && data?.width !== undefined && data?.height !== undefined) {
+      bounds = {
+        x: data.x,
+        y: data.y,
+        width: data.width,
+        height: data.height
+      };
     } else {
-      console.error("❌ No bounds data received");
+      console.error("❌ Invalid coordinate data received:", data);
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("ocr-error", "No capture area specified");
+        mainWindow.webContents.send("ocr-error", "Invalid capture area coordinates");
+      }
+      return;
+    }
+
+    // Determine coordinate system based on the sender
+    const isFromOverlay = event.sender !== mainWindow?.webContents;
+    console.log("📍 Coordinate source:", isFromOverlay ? "overlay window" : "main window");
+    console.log("📍 Event sender ID:", event.sender.id);
+    console.log("📍 Main window webContents ID:", mainWindow?.webContents?.id);
+    console.log("📍 Capture window exists:", !!captureWindow);
+    console.log("📍 Capture window webContents ID:", captureWindow?.webContents?.id);
+    
+    // FIXED: Properly detect if coordinates are from overlay window
+    // The overlay window (captureWindow) sends coordinates that are already in global screen coordinates
+    // The main window sends coordinates that are relative to the window and need work area offset
+    const isFromCaptureOverlay = captureWindow && !captureWindow.isDestroyed() && 
+                                 event.sender === captureWindow.webContents;
+    
+    console.log("📍 CORRECTED - Is from capture overlay:", isFromCaptureOverlay);
+    
+    // Set coordinate system context for the capture manager
+    if (isFromCaptureOverlay) {
+      console.log("📍 Setting overlay bounds (global coordinates)");
+      captureManager.coordinateSystem.setOverlayBounds(bounds);
+    } else {
+      console.log("📍 Setting main window bounds (needs work area offset)");
+      captureManager.coordinateSystem.setOverlayBounds(null);
+    }
+
+    try {
+      console.log("🔄 Starting enhanced area capture...");
+
+      // Process the capture using the new capture manager
+      const imageData = await captureManager.processAreaCapture(bounds);
+      console.log(
+        "✅ Area capture completed successfully, image data length:",
+        imageData.length
+      );
+
+      // Send capture preview to main window
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+          // imageData is already a base64 data URL from canvas.toDataURL()
+          mainWindow.webContents.send("capture-preview", imageData, {
+            width: bounds.width,
+            height: bounds.height,
+          });
+          console.log("📸 Capture preview sent to main window");
+        } catch (previewError) {
+          console.error("❌ Failed to send capture preview:", previewError);
+        }
+      }
+
+      // Process OCR
+      console.log("🔍 Starting OCR processing...");
+      await processOCR(imageData);
+      console.log("✅ OCR processing completed successfully");
+    } catch (captureError) {
+      console.error("❌ Area capture failed:", captureError);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Provide more user-friendly error messages
+        let errorMessage = captureError.message;
+        if (errorMessage.includes('Cannot capture application windows')) {
+          errorMessage = 'Cannot capture the application window itself. Please select a different area.';
+        }
+        mainWindow.webContents.send(
+          "ocr-error",
+          `Capture failed: ${errorMessage}`
+        );
       }
     }
 

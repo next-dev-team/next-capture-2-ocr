@@ -64,104 +64,182 @@
     <script>
         const { ipcRenderer } = require('electron');
         
-        let isSelecting = false;
-        let startX = 0;
-        let startY = 0;
-        let endX = 0;
-        let endY = 0;
-        
-        const selectionArea = document.getElementById('selectionArea');
-        const instructions = document.getElementById('instructions');
-        
-        // Mouse event handlers
-        document.addEventListener('mousedown', (e) => {
-            isSelecting = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            endX = e.clientX;
-            endY = e.clientY;
-            
-            // Hide instructions
-            instructions.style.display = 'none';
-            
-            // Show selection area
-            selectionArea.style.display = 'block';
-            updateSelectionArea();
-            
-            e.preventDefault();
-        });
-        
-        document.addEventListener('mousemove', (e) => {
-            if (!isSelecting) return;
-            
-            endX = e.clientX;
-            endY = e.clientY;
-            updateSelectionArea();
-            
-            e.preventDefault();
-        });
-        
-        document.addEventListener('mouseup', (e) => {
-            if (!isSelecting) return;
-            
-            isSelecting = false;
-            
-            // Calculate selection bounds
-            const left = Math.min(startX, endX);
-            const top = Math.min(startY, endY);
-            const width = Math.abs(endX - startX);
-            const height = Math.abs(endY - startY);
-            
-            // Only proceed if selection has meaningful size
-            if (width > 10 && height > 10) {
-                // Send selection to main process
-                ipcRenderer.send('area-selected', {
-                    bounds: { x: left, y: top, width, height },
-                    timestamp: Date.now()
-                });
-                
-                // Close overlay window
-                window.close();
-            } else {
-                // Reset selection if too small
-                resetSelection();
+        // ===== COORDINATE SYSTEM MANAGER =====
+        class CoordinateManager {
+            constructor() {
+                this.screenStart = { x: 0, y: 0 };
+                this.screenEnd = { x: 0, y: 0 };
+                this.clientStart = { x: 0, y: 0 };
+                this.clientEnd = { x: 0, y: 0 };
             }
             
-            e.preventDefault();
-        });
+            setStart(screenX, screenY, clientX, clientY) {
+                this.screenStart = { x: screenX, y: screenY };
+                this.clientStart = { x: clientX, y: clientY };
+                this.screenEnd = { x: screenX, y: screenY };
+                this.clientEnd = { x: clientX, y: clientY };
+            }
+            
+            updateEnd(screenX, screenY, clientX, clientY) {
+                this.screenEnd = { x: screenX, y: screenY };
+                this.clientEnd = { x: clientX, y: clientY };
+            }
+            
+            getScreenBounds() {
+                return {
+                    x: Math.min(this.screenStart.x, this.screenEnd.x),
+                    y: Math.min(this.screenStart.y, this.screenEnd.y),
+                    width: Math.abs(this.screenEnd.x - this.screenStart.x),
+                    height: Math.abs(this.screenEnd.y - this.screenStart.y)
+                };
+            }
+            
+            getClientBounds() {
+                return {
+                    x: Math.min(this.clientStart.x, this.clientEnd.x),
+                    y: Math.min(this.clientStart.y, this.clientEnd.y),
+                    width: Math.abs(this.clientEnd.x - this.clientStart.x),
+                    height: Math.abs(this.clientEnd.y - this.clientStart.y)
+                };
+            }
+            
+            isValidSelection(minSize = 10) {
+                const bounds = this.getScreenBounds();
+                return bounds.width >= minSize && bounds.height >= minSize;
+            }
+            
+            logCoordinates() {
+                console.log('🖱️ Coordinate System State:');
+                console.log('  Screen Start:', this.screenStart);
+                console.log('  Screen End:', this.screenEnd);
+                console.log('  Client Start:', this.clientStart);
+                console.log('  Client End:', this.clientEnd);
+                console.log('  Screen Bounds:', this.getScreenBounds());
+                console.log('  Client Bounds:', this.getClientBounds());
+            }
+        }
         
-        // Keyboard event handlers
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                // Cancel selection and close overlay
-                window.close();
+        // ===== SELECTION MANAGER =====
+        class SelectionManager {
+            constructor(selectionElement, instructionsElement) {
+                this.selectionElement = selectionElement;
+                this.instructionsElement = instructionsElement;
+                this.isActive = false;
+                this.coordinates = new CoordinateManager();
+            }
+            
+            start(screenX, screenY, clientX, clientY) {
+                this.isActive = true;
+                this.coordinates.setStart(screenX, screenY, clientX, clientY);
+                this.instructionsElement.style.display = 'none';
+                this.selectionElement.style.display = 'block';
+                this.updateVisualSelection();
+            }
+            
+            update(screenX, screenY, clientX, clientY) {
+                if (!this.isActive) return;
+                this.coordinates.updateEnd(screenX, screenY, clientX, clientY);
+                this.updateVisualSelection();
+            }
+            
+            complete() {
+                if (!this.isActive) return null;
+                
+                this.isActive = false;
+                this.coordinates.logCoordinates();
+                
+                if (this.coordinates.isValidSelection()) {
+                    const bounds = this.coordinates.getScreenBounds();
+                    console.log('📤 Sending valid selection bounds:', bounds);
+                    return bounds;
+                } else {
+                    console.log('❌ Selection too small, resetting');
+                    this.reset();
+                    return null;
+                }
+            }
+            
+            reset() {
+                this.isActive = false;
+                this.selectionElement.style.display = 'none';
+                this.instructionsElement.style.display = 'block';
+                this.coordinates = new CoordinateManager();
+            }
+            
+            updateVisualSelection() {
+                const bounds = this.coordinates.getClientBounds();
+                this.selectionElement.style.left = bounds.x + 'px';
+                this.selectionElement.style.top = bounds.y + 'px';
+                this.selectionElement.style.width = bounds.width + 'px';
+                this.selectionElement.style.height = bounds.height + 'px';
+            }
+        }
+        
+        // ===== OVERLAY CONTROLLER =====
+        class OverlayController {
+            constructor() {
+                this.selectionManager = new SelectionManager(
+                    document.getElementById('selectionArea'),
+                    document.getElementById('instructions')
+                );
+                this.setupEventListeners();
+                console.log('✅ Overlay controller initialized');
+            }
+            
+            setupEventListeners() {
+                // Mouse events
+                document.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                document.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                document.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                
+                // Keyboard events
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                
+                // Window focus
+                window.focus();
+            }
+            
+            handleMouseDown(e) {
+                this.selectionManager.start(e.screenX, e.screenY, e.clientX, e.clientY);
                 e.preventDefault();
             }
-        });
-        
-        function updateSelectionArea() {
-            const left = Math.min(startX, endX);
-            const top = Math.min(startY, endY);
-            const width = Math.abs(endX - startX);
-            const height = Math.abs(endY - startY);
             
-            selectionArea.style.left = left + 'px';
-            selectionArea.style.top = top + 'px';
-            selectionArea.style.width = width + 'px';
-            selectionArea.style.height = height + 'px';
+            handleMouseMove(e) {
+                this.selectionManager.update(e.screenX, e.screenY, e.clientX, e.clientY);
+                e.preventDefault();
+            }
+            
+            handleMouseUp(e) {
+                const bounds = this.selectionManager.complete();
+                if (bounds) {
+                    this.sendSelectionToMain(bounds);
+                    this.closeOverlay();
+                }
+                e.preventDefault();
+            }
+            
+            handleKeyDown(e) {
+                if (e.key === 'Escape') {
+                    this.closeOverlay();
+                    e.preventDefault();
+                }
+            }
+            
+            sendSelectionToMain(bounds) {
+                ipcRenderer.send('area-selected', {
+                    bounds,
+                    timestamp: Date.now()
+                });
+            }
+            
+            closeOverlay() {
+                window.close();
+            }
         }
         
-        function resetSelection() {
-            isSelecting = false;
-            selectionArea.style.display = 'none';
-            instructions.style.display = 'block';
-            startX = startY = endX = endY = 0;
-        }
-        
-        // Focus the window to ensure keyboard events work
-        window.focus();
-        
-        console.log('Overlay window loaded and ready');
+        // ===== INITIALIZATION =====
+        const overlayController = new OverlayController();
+        console.log('🌐 Overlay window loaded and ready');
     </script>
 </body>
 </html>

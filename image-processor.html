@@ -8,13 +8,8 @@
     <script>
         const { ipcRenderer } = require('electron');
         
-        console.log("🎨 Image processor script loaded");
-        
         // Listen for processing request
         ipcRenderer.on('process-image', (event, data) => {
-            console.log("📥 Received image processing request");
-            console.log("📏 Bounds:", data.bounds);
-            console.log("🖼️ Image data length:", data.imageDataUrl.length);
             
             try {
                 const canvas = document.getElementById('canvas');
@@ -26,7 +21,21 @@
                 const img = new Image();
                 img.onload = () => {
                     try {
-                        console.log("🖼️ Image loaded, drawing to canvas...");
+                        console.log('🖼️ DEBUG: Image loaded - dimensions:', img.width, 'x', img.height);
+                        console.log('🔍 DEBUG: Crop bounds received:', data.bounds);
+                        
+                        console.log('🎨 DEBUG: Canvas created - dimensions:', canvas.width, 'x', canvas.height);
+                        console.log('🔍 DEBUG: Drawing image with params:', {
+                            sx: data.bounds.x,
+                            sy: data.bounds.y,
+                            sWidth: data.bounds.width,
+                            sHeight: data.bounds.height,
+                            dx: 0,
+                            dy: 0,
+                            dWidth: data.bounds.width,
+                            dHeight: data.bounds.height
+                        });
+                        
                         // Draw the cropped area
                         ctx.drawImage(
                             img, 
@@ -35,26 +44,30 @@
                         );
                         
                         const processedImageData = canvas.toDataURL('image/png');
-                        console.log("✅ Image processing complete, data length:", processedImageData.length);
+                        
+                        // DEBUG: Save the cropped image to see what we're actually processing
+                        const fs = require('fs');
+                        const path = require('path');
+                        const debugImagePath = path.join(__dirname, 'temp', `debug_cropped_${Date.now()}.png`);
+                        const base64Data = processedImageData.replace(/^data:image\/png;base64,/, '');
+                        fs.writeFileSync(debugImagePath, base64Data, 'base64');
+                        console.log('🔍 DEBUG: Cropped image saved to:', debugImagePath);
                         
                         // Send result back to main process
                         ipcRenderer.send('image-processing-complete', processedImageData);
                     } catch (error) {
-                        console.error("❌ Canvas processing error:", error);
+                        console.error('🚨 DEBUG: Canvas processing error:', error);
                         ipcRenderer.send('image-processing-error', error.message);
                     }
                 };
                 
                 img.onerror = (error) => {
-                    console.error("❌ Image load error:", error);
                     ipcRenderer.send('image-processing-error', 'Failed to load image');
                 };
                 
-                console.log("🔄 Loading image...");
                 img.src = data.imageDataUrl;
                 
             } catch (error) {
-                console.error("❌ Processing function error:", error);
                 ipcRenderer.send('image-processing-error', error.message);
             }
         });

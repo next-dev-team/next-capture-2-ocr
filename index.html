@@ -183,7 +183,7 @@
     </div>
 
     <script>
-      const { ipcRenderer } = require("electron");
+    const { ipcRenderer } = require("electron");
 
       // DOM Elements
       const captureBtn = document.getElementById("captureBtn");
@@ -411,12 +411,32 @@
         }, 3000);
       });
 
-      // Handle capture preview
+      // Enhanced capture preview handler with better error handling
       ipcRenderer.on("capture-preview", (event, imageData, dimensions) => {
+        console.log("Received capture preview:", {imageData: imageData ? "present" : "missing", dimensions});
+        
         if (imageData) {
           capturePreview.src = imageData;
-          previewDimensions.textContent = `${dimensions.width} × ${dimensions.height}`;
+          
+          // Update dimensions display
+          if (dimensions) {
+            previewDimensions.textContent = `${dimensions.width} × ${dimensions.height} pixels`;
+          }
+          
+          // Ensure preview section is visible
           capturePreviewSection.style.display = "block";
+          
+          // Update status to show successful capture
+          updateStatus("success", "Area captured successfully!");
+          
+          // Reset capture state
+          captureInProgress = false;
+          
+        } else {
+          console.error("Invalid capture preview data:", {imageData, dimensions});
+          updateStatus("error", "Failed to display capture preview");
+          capturePreviewSection.style.display = "none";
+          captureInProgress = false;
         }
       });
 
@@ -434,23 +454,57 @@
       // Initialize when DOM is loaded
       document.addEventListener("DOMContentLoaded", initializeApp);
 
-      // Drag Selection Functions
+      // Enhanced enableDragSelection function with automatic app hiding
       function enableDragSelection() {
+        console.log("🎯 Enabling drag selection mode");
+        
         if (captureInProgress) return;
+        
+        // Hide the main application window during drag capture
+        if (window.electronAPI && window.electronAPI.hideWindow) {
+          window.electronAPI.hideWindow();
+        } else if (window.ipcRenderer) {
+          window.ipcRenderer.send('hide-main-window');
+        }
 
-        dragOverlay.style.display = "block";
-        selectionArea.style.display = "none";
-        isSelecting = false;
-
-        // Reset any previous selection
-        resetSelection();
-      }
-
-      function disableDragSelection() {
-        dragOverlay.style.display = "none";
-        selectionArea.style.display = "none";
+        dragOverlay.style.display = "flex";
+        dragInstructions.style.display = "block";
+        capturePreviewSection.style.display = "none";
+        
+        // Reset selection state
         isSelecting = false;
         captureInProgress = false;
+        
+        // Clear any previous selection
+        selectionArea.style.display = "none";
+        selectionArea.style.left = "0px";
+        selectionArea.style.top = "0px";
+        selectionArea.style.width = "0px";
+        selectionArea.style.height = "0px";
+        
+        updateStatus("info", "Drag to select capture area. Press Escape to cancel.");
+      }
+
+      // Enhanced disableDragSelection function with automatic app restoration
+      function disableDragSelection() {
+        console.log("🚫 Disabling drag selection mode");
+        
+        dragOverlay.style.display = "none";
+        selectionArea.style.display = "none";
+        dragInstructions.style.display = "none";
+        
+        // Reset selection state
+        isSelecting = false;
+        captureInProgress = false;
+        
+        // Restore the main application window
+        if (window.electronAPI && window.electronAPI.showWindow) {
+          window.electronAPI.showWindow();
+        } else if (window.ipcRenderer) {
+          window.ipcRenderer.send('show-main-window');
+        }
+        
+        updateStatus("ready", "Ready to capture");
         resetSelection();
       }
 
@@ -464,7 +518,7 @@
         }
       }
 
-      // Mouse event handlers for drag selection
+      // Enhanced mouse event handlers for drag selection with preview support
       dragOverlay.addEventListener("mousedown", (event) => {
         if (captureInProgress) return;
 
@@ -472,13 +526,20 @@
         startX = event.clientX;
         startY = event.clientY;
 
+        // Initialize selection area
         selectionArea.style.left = startX + "px";
         selectionArea.style.top = startY + "px";
         selectionArea.style.width = "0px";
         selectionArea.style.height = "0px";
         selectionArea.style.display = "block";
 
+        // Hide instructions and show preview section
         dragInstructions.style.display = "none";
+        capturePreviewSection.style.display = "block";
+        
+        // Clear any previous preview
+        capturePreview.src = "";
+        previewDimensions.textContent = "Selecting area...";
       });
 
       dragOverlay.addEventListener("mousemove", (event) => {
@@ -492,10 +553,14 @@
         const width = Math.abs(endX - startX);
         const height = Math.abs(endY - startY);
 
+        // Update selection area visually
         selectionArea.style.left = left + "px";
         selectionArea.style.top = top + "px";
         selectionArea.style.width = width + "px";
         selectionArea.style.height = height + "px";
+
+        // Update preview dimensions in real-time
+        previewDimensions.textContent = `${width} × ${height} pixels`;
       });
 
       dragOverlay.addEventListener("mouseup", async (event) => {
@@ -512,11 +577,18 @@
         const width = Math.abs(endX - startX);
         const height = Math.abs(endY - startY);
 
+        // Validate selection size
         if (width < 10 || height < 10) {
+          updateStatus("error", "Selection too small. Please select a larger area.");
           disableDragSelection();
+          capturePreviewSection.style.display = "none";
+          captureInProgress = false;
           return;
         }
 
+        // Keep preview visible during capture
+        previewDimensions.textContent = `Capturing ${width} × ${height} pixels...`;
+        
         await processAreaCapture(left, top, width, height);
       });
 
@@ -527,30 +599,37 @@
         }
       });
 
-      // Process area capture
-      async function processAreaCapture(left, top, width, height) {
+      // Enhanced processAreaCapture function with improved preview handling
+      async function processAreaCapture(x, y, width, height) {
         try {
-          updateStatus("processing", "Capturing selected area...");
+          updateStatus("info", "Capturing selected area...");
+          
+          // Keep preview section visible during capture
+          capturePreviewSection.style.display = "block";
+          previewDimensions.textContent = `Processing ${width} × ${height} pixels...`;
 
-          // Hide selection UI
-          selectionArea.style.display = "none";
-          dragInstructions.style.display = "none";
-
-          // Send capture request to main process with bounds
           const captureData = {
-            bounds: { x: left, y: top, width, height },
-            timestamp: Date.now(),
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            timestamp: Date.now()
           };
 
-          // Send area selection to main process for capture
+          // Send capture request to main process
           ipcRenderer.send("area-selected", captureData);
+          
+          // Keep the selection area visible briefly to show what was captured
+          setTimeout(() => {
+            disableDragSelection();
+          }, 500);
 
-          // Disable drag selection after sending
-          disableDragSelection();
         } catch (error) {
-          console.error("Area capture error:", error);
-          updateStatus("error", `Capture failed: ${error.message}`);
+          console.error("Error in processAreaCapture:", error);
+          updateStatus("error", "Failed to process area capture: " + error.message);
           disableDragSelection();
+          capturePreviewSection.style.display = "none";
+          captureInProgress = false;
         }
       }
     </script>
