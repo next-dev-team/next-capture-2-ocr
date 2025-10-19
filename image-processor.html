@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Processing</title>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        console.log("🎨 Image processor script loaded");
+        
+        // Listen for processing request
+        ipcRenderer.on('process-image', (event, data) => {
+            console.log("📥 Received image processing request");
+            console.log("📏 Bounds:", data.bounds);
+            console.log("🖼️ Image data length:", data.imageDataUrl.length);
+            
+            try {
+                const canvas = document.getElementById('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = data.bounds.width;
+                canvas.height = data.bounds.height;
+                
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        console.log("🖼️ Image loaded, drawing to canvas...");
+                        // Draw the cropped area
+                        ctx.drawImage(
+                            img, 
+                            data.bounds.x, data.bounds.y, data.bounds.width, data.bounds.height,
+                            0, 0, data.bounds.width, data.bounds.height
+                        );
+                        
+                        const processedImageData = canvas.toDataURL('image/png');
+                        console.log("✅ Image processing complete, data length:", processedImageData.length);
+                        
+                        // Send result back to main process
+                        ipcRenderer.send('image-processing-complete', processedImageData);
+                    } catch (error) {
+                        console.error("❌ Canvas processing error:", error);
+                        ipcRenderer.send('image-processing-error', error.message);
+                    }
+                };
+                
+                img.onerror = (error) => {
+                    console.error("❌ Image load error:", error);
+                    ipcRenderer.send('image-processing-error', 'Failed to load image');
+                };
+                
+                console.log("🔄 Loading image...");
+                img.src = data.imageDataUrl;
+                
+            } catch (error) {
+                console.error("❌ Processing function error:", error);
+                ipcRenderer.send('image-processing-error', error.message);
+            }
+        });
+        
+        // Signal that we're ready
+        ipcRenderer.send('image-processor-ready');
+    </script>
+</body>
+</html>

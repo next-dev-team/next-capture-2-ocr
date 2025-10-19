@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Area Selection Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            background: transparent;
+            cursor: crosshair;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-app-region: no-drag;
+        }
+
+        .selection-area {
+            position: absolute;
+            border: 2px solid #007AFF;
+            background: rgba(0, 122, 255, 0.1);
+            display: none;
+            pointer-events: none;
+        }
+
+        .instructions {
+            display: none !important;
+        }
+
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #007AFF;
+        }
+
+        .instructions p {
+            margin: 5px 0;
+            opacity: 0.9;
+        }
+
+        .instructions .key {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions" id="instructions">
+        <h3>Select Area to Capture</h3>
+        <p>Click and drag to select an area</p>
+        <p>Press <span class="key">Escape</span> to cancel</p>
+    </div>
+    
+    <div class="selection-area" id="selectionArea"></div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let isSelecting = false;
+        let startX = 0;
+        let startY = 0;
+        let endX = 0;
+        let endY = 0;
+        
+        const selectionArea = document.getElementById('selectionArea');
+        const instructions = document.getElementById('instructions');
+        
+        // Mouse event handlers
+        document.addEventListener('mousedown', (e) => {
+            isSelecting = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            endX = e.clientX;
+            endY = e.clientY;
+            
+            // Hide instructions
+            instructions.style.display = 'none';
+            
+            // Show selection area
+            selectionArea.style.display = 'block';
+            updateSelectionArea();
+            
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isSelecting) return;
+            
+            endX = e.clientX;
+            endY = e.clientY;
+            updateSelectionArea();
+            
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mouseup', (e) => {
+            if (!isSelecting) return;
+            
+            isSelecting = false;
+            
+            // Calculate selection bounds
+            const left = Math.min(startX, endX);
+            const top = Math.min(startY, endY);
+            const width = Math.abs(endX - startX);
+            const height = Math.abs(endY - startY);
+            
+            // Only proceed if selection has meaningful size
+            if (width > 10 && height > 10) {
+                // Send selection to main process
+                ipcRenderer.send('area-selected', {
+                    bounds: { x: left, y: top, width, height },
+                    timestamp: Date.now()
+                });
+                
+                // Close overlay window
+                window.close();
+            } else {
+                // Reset selection if too small
+                resetSelection();
+            }
+            
+            e.preventDefault();
+        });
+        
+        // Keyboard event handlers
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Cancel selection and close overlay
+                window.close();
+                e.preventDefault();
+            }
+        });
+        
+        function updateSelectionArea() {
+            const left = Math.min(startX, endX);
+            const top = Math.min(startY, endY);
+            const width = Math.abs(endX - startX);
+            const height = Math.abs(endY - startY);
+            
+            selectionArea.style.left = left + 'px';
+            selectionArea.style.top = top + 'px';
+            selectionArea.style.width = width + 'px';
+            selectionArea.style.height = height + 'px';
+        }
+        
+        function resetSelection() {
+            isSelecting = false;
+            selectionArea.style.display = 'none';
+            instructions.style.display = 'block';
+            startX = startY = endX = endY = 0;
+        }
+        
+        // Focus the window to ensure keyboard events work
+        window.focus();
+        
+        console.log('Overlay window loaded and ready');
+    </script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Manual Drag Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .test-area {
+            background: white;
+            border: 2px solid #333;
+            padding: 30px;
+            margin: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .instructions {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 5px;
+        }
+        .test-text {
+            color: #333;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        <h2>🧪 Manual Drag Capture Test</h2>
+        <p><strong>Instructions:</strong></p>
+        <ol>
+            <li>Make sure the OCR Screen Capture app is running</li>
+            <li>Use the keyboard shortcut <kbd>Cmd+Shift+2</kbd> to start area capture</li>
+            <li>Drag to select one of the test areas below</li>
+            <li>Check if the text is captured correctly</li>
+        </ol>
+    </div>
+
+    <div class="test-area">
+        <div class="test-text">
+            HELLO WORLD<br>
+            This is test text 123
+        </div>
+    </div>
+
+    <div class="test-area">
+        <div class="test-text">
+            SAMPLE TEXT FOR OCR<br>
+            Testing drag capture functionality
+        </div>
+    </div>
+
+    <div class="test-area">
+        <div class="test-text">
+            DRAG TEST AREA<br>
+            Numbers: 456789<br>
+            Special: @#$%^&*
+        </div>
+    </div>
+
+    <div class="instructions">
+        <h3>✅ Expected Results:</h3>
+        <ul>
+            <li>Capture window should appear as a transparent overlay</li>
+            <li>You should be able to click and drag to select text areas</li>
+            <li>Selection rectangle should be visible during drag</li>
+            <li>OCR should process the selected area and extract text</li>
+            <li>Extracted text should appear in the main app window</li>
+        </ul>
+    </div>
+</body>
+</html>
