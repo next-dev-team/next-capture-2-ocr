@@ -119,10 +119,10 @@ function createMainWindow() {
   const bounds = store.get("windowBounds");
 
   mainWindow = new BrowserWindow({
-    width: bounds.width,
-    height: bounds.height,
-    x: bounds.x,
-    y: bounds.y,
+    width: 1024,
+    height: 768,
+    center: true,
+
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -135,7 +135,7 @@ function createMainWindow() {
   });
 
   // Register main window with capture manager
-  captureManager.registerWindow(mainWindow, 'main');
+  captureManager.registerWindow(mainWindow, "main");
 
   mainWindow.loadFile("index.html");
 
@@ -449,7 +449,7 @@ async function processOCR(imageData) {
     const timestamp = Date.now();
     const tempPath = path.join(tempDir, `capture_${timestamp}.png`);
     const debugPath = path.join(debugDir, `debug_capture_${timestamp}.png`);
-    
+
     fs.writeFileSync(tempPath, buffer);
     fs.writeFileSync(debugPath, buffer);
 
@@ -612,11 +612,14 @@ class CoordinateSystemManager {
       scaleFactor: primaryDisplay.scaleFactor,
       bounds: primaryDisplay.bounds,
       workArea: primaryDisplay.workArea,
-      menuBarHeight: primaryDisplay.bounds.y + 
-        (primaryDisplay.bounds.height - primaryDisplay.workArea.height - primaryDisplay.workArea.y)
+      menuBarHeight:
+        primaryDisplay.bounds.y +
+        (primaryDisplay.bounds.height -
+          primaryDisplay.workArea.height -
+          primaryDisplay.workArea.y),
     };
-    
-    console.log('📐 Coordinate system initialized:', this.displayInfo);
+
+    console.log("📐 Coordinate system initialized:", this.displayInfo);
     return this.displayInfo;
   }
 
@@ -626,16 +629,16 @@ class CoordinateSystemManager {
 
   transformBounds(rawBounds) {
     if (!this.displayInfo) {
-      throw new Error('Coordinate system not initialized');
+      throw new Error("Coordinate system not initialized");
     }
 
-    console.log('🔍 DEBUG: Raw bounds from drag:', rawBounds);
-    console.log('🔍 DEBUG: Overlay bounds set?', !!this.overlayBounds);
-    console.log('🔍 DEBUG: Display info:', this.displayInfo);
+    console.log("🔍 DEBUG: Raw bounds from drag:", rawBounds);
+    console.log("🔍 DEBUG: Overlay bounds set?", !!this.overlayBounds);
+    console.log("🔍 DEBUG: Display info:", this.displayInfo);
 
     // FIXED: Proper coordinate handling for overlay window
     let actualBounds;
-    
+
     if (this.overlayBounds) {
       // The coordinates from overlay.html are already in global screen coordinates
       // They are already correct and don't need menu bar adjustment
@@ -645,7 +648,7 @@ class CoordinateSystemManager {
         width: rawBounds.width,
         height: rawBounds.height,
       };
-      console.log('🔍 DEBUG: Using overlay coordinates (already global)');
+      console.log("🔍 DEBUG: Using overlay coordinates (already global)");
     } else {
       // For main window drag selection, coordinates are relative to the window
       // We need to add the work area offset to convert to global coordinates
@@ -655,10 +658,12 @@ class CoordinateSystemManager {
         width: rawBounds.width,
         height: rawBounds.height,
       };
-      console.log('🔍 DEBUG: Using main window coordinates, adjusted for work area');
+      console.log(
+        "🔍 DEBUG: Using main window coordinates, adjusted for work area"
+      );
     }
 
-    console.log('🔍 DEBUG: Actual bounds after adjustment:', actualBounds);
+    console.log("🔍 DEBUG: Actual bounds after adjustment:", actualBounds);
 
     // Scale for high DPI displays
     const scaledBounds = {
@@ -668,18 +673,18 @@ class CoordinateSystemManager {
       height: Math.round(actualBounds.height * this.displayInfo.scaleFactor),
     };
 
-    console.log('🔍 DEBUG: Scaled bounds for capture:', scaledBounds);
+    console.log("🔍 DEBUG: Scaled bounds for capture:", scaledBounds);
 
     return { actualBounds, scaledBounds };
   }
 
   logDebugInfo(rawBounds) {
-    console.log('🖥️ Display info:');
-    console.log('  Display bounds:', this.displayInfo.bounds);
-    console.log('  Work area:', this.displayInfo.workArea);
-    console.log('  Menu bar height:', this.displayInfo.menuBarHeight);
-    console.log('  Scale factor:', this.displayInfo.scaleFactor);
-    console.log('  Overlay bounds:', this.overlayBounds);
+    console.log("🖥️ Display info:");
+    console.log("  Display bounds:", this.displayInfo.bounds);
+    console.log("  Work area:", this.displayInfo.workArea);
+    console.log("  Menu bar height:", this.displayInfo.menuBarHeight);
+    console.log("  Scale factor:", this.displayInfo.scaleFactor);
+    console.log("  Overlay bounds:", this.overlayBounds);
   }
 }
 
@@ -690,50 +695,54 @@ class SelfCapturePreventionManager {
     this.overlayWindow = null;
   }
 
-  registerWindow(window, type = 'main') {
+  registerWindow(window, type = "main") {
     this.appWindows.add({ window, type });
     console.log(`🛡️ Registered ${type} window for self-capture prevention`);
   }
 
   setOverlayWindow(window) {
     this.overlayWindow = window;
-    console.log('🛡️ Overlay window registered for self-capture prevention');
+    console.log("🛡️ Overlay window registered for self-capture prevention");
   }
 
   async hideAllAppWindows() {
-    console.log('🙈 Hiding all application windows to prevent self-capture');
-    
+    console.log("🙈 Hiding all application windows to prevent self-capture");
+
     const hidePromises = [];
-    
+
     // Hide overlay window first
     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-      hidePromises.push(new Promise(resolve => {
-        this.overlayWindow.hide();
-        setTimeout(resolve, 50);
-      }));
+      hidePromises.push(
+        new Promise((resolve) => {
+          this.overlayWindow.hide();
+          setTimeout(resolve, 50);
+        })
+      );
     }
 
     // Hide other app windows
     for (const { window, type } of this.appWindows) {
       if (window && !window.isDestroyed() && window.isVisible()) {
-        hidePromises.push(new Promise(resolve => {
-          window.hide();
-          console.log(`🙈 Hidden ${type} window`);
-          setTimeout(resolve, 50);
-        }));
+        hidePromises.push(
+          new Promise((resolve) => {
+            window.hide();
+            console.log(`🙈 Hidden ${type} window`);
+            setTimeout(resolve, 50);
+          })
+        );
       }
     }
 
     await Promise.all(hidePromises);
-    
+
     // Additional delay to ensure windows are fully hidden
-    await new Promise(resolve => setTimeout(resolve, 100));
-    console.log('✅ All application windows hidden');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    console.log("✅ All application windows hidden");
   }
 
   async restoreAppWindows() {
-    console.log('👁️ Restoring application windows');
-    
+    console.log("👁️ Restoring application windows");
+
     for (const { window, type } of this.appWindows) {
       if (window && !window.isDestroyed()) {
         window.show();
@@ -748,7 +757,7 @@ class SelfCapturePreventionManager {
       if (window && !window.isDestroyed() && window.isVisible()) {
         const windowBounds = window.getBounds();
         if (this.boundsOverlap(bounds, windowBounds)) {
-          console.log('⚠️ Detected potential self-capture attempt');
+          console.log("⚠️ Detected potential self-capture attempt");
           return true;
         }
       }
@@ -757,10 +766,12 @@ class SelfCapturePreventionManager {
   }
 
   boundsOverlap(bounds1, bounds2) {
-    return !(bounds1.x + bounds1.width < bounds2.x ||
-             bounds2.x + bounds2.width < bounds1.x ||
-             bounds1.y + bounds1.height < bounds2.y ||
-             bounds2.y + bounds2.height < bounds1.y);
+    return !(
+      bounds1.x + bounds1.width < bounds2.x ||
+      bounds2.x + bounds2.width < bounds1.x ||
+      bounds1.y + bounds1.height < bounds2.y ||
+      bounds2.y + bounds2.height < bounds1.y
+    );
   }
 }
 
@@ -787,29 +798,30 @@ class CaptureManager {
   async processAreaCapture(bounds) {
     // Initialize coordinate system
     await this.coordinateSystem.initialize();
-    
+
     // Log debug information
     this.coordinateSystem.logDebugInfo(bounds);
-    
+
     // Transform coordinates
-    const { actualBounds, scaledBounds } = this.coordinateSystem.transformBounds(bounds);
-    
+    const { actualBounds, scaledBounds } =
+      this.coordinateSystem.transformBounds(bounds);
+
     // Check for self-capture
     if (this.selfCapturePreventionManager.isAppWindow(actualBounds)) {
-      console.log('🚫 Self-capture detected, aborting');
-      throw new Error('Cannot capture application windows');
+      console.log("🚫 Self-capture detected, aborting");
+      throw new Error("Cannot capture application windows");
     }
-    
+
     // Hide all app windows
     await this.selfCapturePreventionManager.hideAllAppWindows();
-    
+
     try {
       // Perform the actual capture
       const imageData = await this.captureScreen(scaledBounds);
-      
+
       // Restore app windows
       await this.selfCapturePreventionManager.restoreAppWindows();
-      
+
       return imageData;
     } catch (error) {
       // Ensure windows are restored even on error
@@ -819,8 +831,8 @@ class CaptureManager {
   }
 
   async captureScreen(scaledBounds) {
-    console.log('📸 Capturing screen with bounds:', scaledBounds);
-    
+    console.log("📸 Capturing screen with bounds:", scaledBounds);
+
     // Get desktop sources
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
@@ -837,43 +849,49 @@ class CaptureManager {
     const primarySource = sources[0];
     const thumbnail = primarySource.thumbnail;
     const thumbnailDataUrl = thumbnail.toDataURL();
-    
+
     // Get actual thumbnail dimensions
     const thumbnailSize = thumbnail.getSize();
-    console.log('🖼️ Thumbnail dimensions:', thumbnailSize);
-    
+    console.log("🖼️ Thumbnail dimensions:", thumbnailSize);
+
     // Get screen dimensions - IMPORTANT: Use the actual display bounds, not screen.getPrimaryDisplay()
     const displayInfo = this.coordinateSystem.displayInfo;
     const screenBounds = displayInfo.bounds;
-    console.log('🖥️ Screen dimensions (from display info):', screenBounds);
-    
+    console.log("🖥️ Screen dimensions (from display info):", screenBounds);
+
     // Calculate scaling factor between thumbnail and screen
     const thumbnailScaleX = thumbnailSize.width / screenBounds.width;
     const thumbnailScaleY = thumbnailSize.height / screenBounds.height;
-    
-    console.log('📏 Thumbnail scale factors:', { x: thumbnailScaleX, y: thumbnailScaleY });
-    
+
+    console.log("📏 Thumbnail scale factors:", {
+      x: thumbnailScaleX,
+      y: thumbnailScaleY,
+    });
+
     // IMPORTANT: The scaledBounds are already scaled by displayInfo.scaleFactor
     // We need to convert them back to logical coordinates before applying thumbnail scaling
     const logicalBounds = {
       x: scaledBounds.x / displayInfo.scaleFactor,
       y: scaledBounds.y / displayInfo.scaleFactor,
       width: scaledBounds.width / displayInfo.scaleFactor,
-      height: scaledBounds.height / displayInfo.scaleFactor
+      height: scaledBounds.height / displayInfo.scaleFactor,
     };
-    
-    console.log('🔍 DEBUG: Logical bounds (unscaled):', logicalBounds);
-    
+
+    console.log("🔍 DEBUG: Logical bounds (unscaled):", logicalBounds);
+
     // Now apply thumbnail scaling to logical coordinates
     const thumbnailBounds = {
       x: Math.round(logicalBounds.x * thumbnailScaleX),
       y: Math.round(logicalBounds.y * thumbnailScaleY),
       width: Math.round(logicalBounds.width * thumbnailScaleX),
-      height: Math.round(logicalBounds.height * thumbnailScaleY)
+      height: Math.round(logicalBounds.height * thumbnailScaleY),
     };
-    
-    console.log('🔍 DEBUG: Final thumbnail bounds for cropping:', thumbnailBounds);
-    
+
+    console.log(
+      "🔍 DEBUG: Final thumbnail bounds for cropping:",
+      thumbnailBounds
+    );
+
     // Process the image with adjusted bounds
     return await this.processImage(thumbnailBounds, thumbnailDataUrl);
   }
@@ -895,7 +913,10 @@ class CaptureManager {
 
       // Handle processing result
       ipcMain.once("image-processing-complete", (event, imageData) => {
-        console.log("✅ Image processing completed, data length:", imageData.length);
+        console.log(
+          "✅ Image processing completed, data length:",
+          imageData.length
+        );
         processingWin.close();
         resolve(imageData);
       });
@@ -923,15 +944,15 @@ class CaptureManager {
 const captureManager = new CaptureManager();
 
 // Enhanced IPC handlers for window visibility control
-ipcMain.on('hide-main-window', () => {
-  console.log('🙈 Hiding main window for drag capture');
+ipcMain.on("hide-main-window", () => {
+  console.log("🙈 Hiding main window for drag capture");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.hide();
   }
 });
 
-ipcMain.on('show-main-window', () => {
-  console.log('👁️ Showing main window after drag capture');
+ipcMain.on("show-main-window", () => {
+  console.log("👁️ Showing main window after drag capture");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
     mainWindow.focus();
@@ -948,37 +969,56 @@ ipcMain.on("area-selected", async (event, data) => {
     let bounds;
     if (data?.bounds) {
       bounds = data.bounds;
-    } else if (data?.x !== undefined && data?.y !== undefined && data?.width !== undefined && data?.height !== undefined) {
+    } else if (
+      data?.x !== undefined &&
+      data?.y !== undefined &&
+      data?.width !== undefined &&
+      data?.height !== undefined
+    ) {
       bounds = {
         x: data.x,
         y: data.y,
         width: data.width,
-        height: data.height
+        height: data.height,
       };
     } else {
       console.error("❌ Invalid coordinate data received:", data);
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("ocr-error", "Invalid capture area coordinates");
+        mainWindow.webContents.send(
+          "ocr-error",
+          "Invalid capture area coordinates"
+        );
       }
       return;
     }
 
     // Determine coordinate system based on the sender
     const isFromOverlay = event.sender !== mainWindow?.webContents;
-    console.log("📍 Coordinate source:", isFromOverlay ? "overlay window" : "main window");
+    console.log(
+      "📍 Coordinate source:",
+      isFromOverlay ? "overlay window" : "main window"
+    );
     console.log("📍 Event sender ID:", event.sender.id);
     console.log("📍 Main window webContents ID:", mainWindow?.webContents?.id);
     console.log("📍 Capture window exists:", !!captureWindow);
-    console.log("📍 Capture window webContents ID:", captureWindow?.webContents?.id);
-    
+    console.log(
+      "📍 Capture window webContents ID:",
+      captureWindow?.webContents?.id
+    );
+
     // FIXED: Properly detect if coordinates are from overlay window
     // The overlay window (captureWindow) sends coordinates that are already in global screen coordinates
     // The main window sends coordinates that are relative to the window and need work area offset
-    const isFromCaptureOverlay = captureWindow && !captureWindow.isDestroyed() && 
-                                 event.sender === captureWindow.webContents;
-    
-    console.log("📍 CORRECTED - Is from capture overlay:", isFromCaptureOverlay);
-    
+    const isFromCaptureOverlay =
+      captureWindow &&
+      !captureWindow.isDestroyed() &&
+      event.sender === captureWindow.webContents;
+
+    console.log(
+      "📍 CORRECTED - Is from capture overlay:",
+      isFromCaptureOverlay
+    );
+
     // Set coordinate system context for the capture manager
     if (isFromCaptureOverlay) {
       console.log("📍 Setting overlay bounds (global coordinates)");
@@ -1021,8 +1061,9 @@ ipcMain.on("area-selected", async (event, data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         // Provide more user-friendly error messages
         let errorMessage = captureError.message;
-        if (errorMessage.includes('Cannot capture application windows')) {
-          errorMessage = 'Cannot capture the application window itself. Please select a different area.';
+        if (errorMessage.includes("Cannot capture application windows")) {
+          errorMessage =
+            "Cannot capture the application window itself. Please select a different area.";
         }
         mainWindow.webContents.send(
           "ocr-error",
