@@ -1,5 +1,7 @@
 # OCR Screen Capture
 
+![Demo Image](demo.png)
+
 ## Description
 
 This application allows users to capture a portion of their screen and extract text from it using Optical Character Recognition (OCR). It is built with Electron and Tesseract.js, providing a seamless experience for text extraction directly from your desktop.
