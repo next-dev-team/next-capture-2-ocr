@@ -347,29 +347,41 @@ async function captureFullScreen() {
       }
     }
 
-    // Get screen sources
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width:
-          screen.getPrimaryDisplay().workAreaSize.width *
-          screen.getPrimaryDisplay().scaleFactor,
-        height:
-          screen.getPrimaryDisplay().workAreaSize.height *
-          screen.getPrimaryDisplay().scaleFactor,
-      },
-    });
+    // Hide all app windows before capture to prevent self-capture
+    await captureManager.selfCapturePreventionManager.hideAllAppWindows();
 
-    if (sources.length === 0) {
-      throw new Error("No screen sources available");
+    try {
+      // Get desktop sources
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: {
+          width:
+            screen.getPrimaryDisplay().workAreaSize.width *
+            screen.getPrimaryDisplay().scaleFactor,
+          height:
+            screen.getPrimaryDisplay().workAreaSize.height *
+            screen.getPrimaryDisplay().scaleFactor,
+        },
+      });
+
+      if (sources.length === 0) {
+        throw new Error("No screen sources available");
+      }
+
+      // Use the primary screen
+      const screenshot = sources[0].thumbnail;
+      const imageData = screenshot.toPNG();
+
+      // Restore app windows after successful capture
+      await captureManager.selfCapturePreventionManager.restoreAppWindows();
+
+      // Process OCR directly
+      await processOCR(Array.from(imageData));
+    } catch (captureError) {
+      // Restore app windows even if capture fails
+      await captureManager.selfCapturePreventionManager.restoreAppWindows();
+      throw captureError;
     }
-
-    // Use the primary screen
-    const screenshot = sources[0].thumbnail;
-    const imageData = screenshot.toPNG();
-
-    // Process OCR directly
-    await processOCR(Array.from(imageData));
   } catch (error) {
     console.error("Screen capture error:", error);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -773,6 +785,69 @@ class SelfCapturePreventionManager {
       bounds2.y + bounds2.height < bounds1.y
     );
   }
+
+  // Filter out app windows from desktopCapturer sources
+  async filterAppWindowsFromSources(sources) {
+    if (!sources || sources.length === 0) {
+      return sources;
+    }
+
+    console.log(`🔍 Filtering ${sources.length} sources to exclude app windows`);
+    
+    const filteredSources = [];
+    const appWindowIds = new Set();
+    
+    // Collect all app window IDs
+    for (const { window } of this.appWindows) {
+      if (window && !window.isDestroyed()) {
+        try {
+          const windowId = window.getMediaSourceId();
+          if (windowId) {
+            appWindowIds.add(windowId);
+            console.log(`🛡️ Added app window ID to exclusion list: ${windowId}`);
+          }
+        } catch (error) {
+          console.warn("⚠️ Could not get media source ID for app window:", error.message);
+        }
+      }
+    }
+
+    // Add overlay window ID if it exists
+    if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+      try {
+        const overlayId = this.overlayWindow.getMediaSourceId();
+        if (overlayId) {
+          appWindowIds.add(overlayId);
+          console.log(`🛡️ Added overlay window ID to exclusion list: ${overlayId}`);
+        }
+      } catch (error) {
+        console.warn("⚠️ Could not get media source ID for overlay window:", error.message);
+      }
+    }
+
+    // Filter sources
+    for (const source of sources) {
+      if (!appWindowIds.has(source.id)) {
+        filteredSources.push(source);
+      } else {
+        console.log(`🚫 Excluded app window from sources: ${source.name} (${source.id})`);
+      }
+    }
+
+    console.log(`✅ Filtered sources: ${filteredSources.length}/${sources.length} sources remaining`);
+    return filteredSources;
+  }
+
+  // Get app-safe desktop sources
+  async getSafeDesktopSources(options = {}) {
+    try {
+      const sources = await desktopCapturer.getSources(options);
+      return await this.filterAppWindowsFromSources(sources);
+    } catch (error) {
+      console.error("❌ Error getting safe desktop sources:", error);
+      throw error;
+    }
+  }
 }
 
 // ===== CAPTURE MANAGER =====
@@ -833,67 +908,81 @@ class CaptureManager {
   async captureScreen(scaledBounds) {
     console.log("📸 Capturing screen with bounds:", scaledBounds);
 
-    // Get desktop sources
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: { width: 3840, height: 2160 },
-    });
+    // Hide all app windows before capture to prevent self-capture
+    await this.selfCapturePreventionManager.hideAllAppWindows();
 
-    if (sources.length === 0) {
-      throw new Error("No screen sources available");
+    try {
+      // Get desktop sources
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width: 3840, height: 2160 },
+      });
+
+      if (sources.length === 0) {
+        throw new Error("No screen sources available");
+      }
+
+      console.log(`📺 Found ${sources.length} screen sources`);
+
+      // Use the primary screen source
+      const primarySource = sources[0];
+      const thumbnail = primarySource.thumbnail;
+      const thumbnailDataUrl = thumbnail.toDataURL();
+
+      // Get actual thumbnail dimensions
+      const thumbnailSize = thumbnail.getSize();
+      console.log("🖼️ Thumbnail dimensions:", thumbnailSize);
+
+      // Get screen dimensions - IMPORTANT: Use the actual display bounds, not screen.getPrimaryDisplay()
+      const displayInfo = this.coordinateSystem.displayInfo;
+      const screenBounds = displayInfo.bounds;
+      console.log("🖥️ Screen dimensions (from display info):", screenBounds);
+
+      // Calculate scaling factor between thumbnail and screen
+      const thumbnailScaleX = thumbnailSize.width / screenBounds.width;
+      const thumbnailScaleY = thumbnailSize.height / screenBounds.height;
+
+      console.log("📏 Thumbnail scale factors:", {
+        x: thumbnailScaleX,
+        y: thumbnailScaleY,
+      });
+
+      // IMPORTANT: The scaledBounds are already scaled by displayInfo.scaleFactor
+      // We need to convert them back to logical coordinates before applying thumbnail scaling
+      const logicalBounds = {
+        x: scaledBounds.x / displayInfo.scaleFactor,
+        y: scaledBounds.y / displayInfo.scaleFactor,
+        width: scaledBounds.width / displayInfo.scaleFactor,
+        height: scaledBounds.height / displayInfo.scaleFactor,
+      };
+
+      console.log("🔍 DEBUG: Logical bounds (unscaled):", logicalBounds);
+
+      // Now apply thumbnail scaling to logical coordinates
+      const thumbnailBounds = {
+        x: Math.round(logicalBounds.x * thumbnailScaleX),
+        y: Math.round(logicalBounds.y * thumbnailScaleY),
+        width: Math.round(logicalBounds.width * thumbnailScaleX),
+        height: Math.round(logicalBounds.height * thumbnailScaleY),
+      };
+
+      console.log(
+        "🔍 DEBUG: Final thumbnail bounds for cropping:",
+        thumbnailBounds
+      );
+
+      // Process the image with adjusted bounds
+      const result = await this.processImage(thumbnailBounds, thumbnailDataUrl);
+      
+      // Restore app windows after successful capture
+      await this.selfCapturePreventionManager.restoreAppWindows();
+      
+      return result;
+    } catch (error) {
+      // Restore app windows even if capture fails
+      await this.selfCapturePreventionManager.restoreAppWindows();
+      throw error;
     }
-
-    console.log(`📺 Found ${sources.length} screen sources`);
-
-    // Use the primary screen source
-    const primarySource = sources[0];
-    const thumbnail = primarySource.thumbnail;
-    const thumbnailDataUrl = thumbnail.toDataURL();
-
-    // Get actual thumbnail dimensions
-    const thumbnailSize = thumbnail.getSize();
-    console.log("🖼️ Thumbnail dimensions:", thumbnailSize);
-
-    // Get screen dimensions - IMPORTANT: Use the actual display bounds, not screen.getPrimaryDisplay()
-    const displayInfo = this.coordinateSystem.displayInfo;
-    const screenBounds = displayInfo.bounds;
-    console.log("🖥️ Screen dimensions (from display info):", screenBounds);
-
-    // Calculate scaling factor between thumbnail and screen
-    const thumbnailScaleX = thumbnailSize.width / screenBounds.width;
-    const thumbnailScaleY = thumbnailSize.height / screenBounds.height;
-
-    console.log("📏 Thumbnail scale factors:", {
-      x: thumbnailScaleX,
-      y: thumbnailScaleY,
-    });
-
-    // IMPORTANT: The scaledBounds are already scaled by displayInfo.scaleFactor
-    // We need to convert them back to logical coordinates before applying thumbnail scaling
-    const logicalBounds = {
-      x: scaledBounds.x / displayInfo.scaleFactor,
-      y: scaledBounds.y / displayInfo.scaleFactor,
-      width: scaledBounds.width / displayInfo.scaleFactor,
-      height: scaledBounds.height / displayInfo.scaleFactor,
-    };
-
-    console.log("🔍 DEBUG: Logical bounds (unscaled):", logicalBounds);
-
-    // Now apply thumbnail scaling to logical coordinates
-    const thumbnailBounds = {
-      x: Math.round(logicalBounds.x * thumbnailScaleX),
-      y: Math.round(logicalBounds.y * thumbnailScaleY),
-      width: Math.round(logicalBounds.width * thumbnailScaleX),
-      height: Math.round(logicalBounds.height * thumbnailScaleY),
-    };
-
-    console.log(
-      "🔍 DEBUG: Final thumbnail bounds for cropping:",
-      thumbnailBounds
-    );
-
-    // Process the image with adjusted bounds
-    return await this.processImage(thumbnailBounds, thumbnailDataUrl);
   }
 
   async processImage(bounds, imageDataUrl) {
