@@ -13,7 +13,7 @@ jobs:
   release:
     if: github.event_name == 'push' || (github.event.pull_request.merged == true)
     runs-on: ${{ matrix.os }}
-
+    
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
@@ -41,35 +41,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional --passive"
-        
-      - name: Set up code signing (macOS)
-        if: matrix.os == 'macos-latest'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: |
-          # Import certificate if provided
-          if [ -n "$CSC_LINK" ]; then
-            echo "Code signing certificate found"
-            # The certificate will be automatically used by electron-builder
-          else
-            echo "No code signing certificate provided - building unsigned"
-          fi
           
-      - name: Build application
+      - name: Build application (unsigned)
         env:
-          # macOS code signing
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # Windows code signing
-          CSC_LINK_WIN: ${{ secrets.CSC_LINK_WIN }}
-          CSC_KEY_PASSWORD_WIN: ${{ secrets.CSC_KEY_PASSWORD_WIN }}
+          # Disable code signing
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           # GitHub token for releases
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

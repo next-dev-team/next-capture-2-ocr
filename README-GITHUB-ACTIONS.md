@@ -1,50 +1,40 @@
 # GitHub Actions Release Workflow
 
-This document explains the automated release workflow for the OCR Screen Capture application.
+This repository includes an automated GitHub Actions workflow that builds and releases your OCR Screen Capture application for macOS and Windows platforms.
 
-## Workflow Overview
+## How It Works
 
-The GitHub Actions workflow automatically builds and releases the application for Mac and Windows platforms when:
+The workflow automatically triggers when:
 - Code is pushed to the `main` branch
 - A pull request is merged into the `main` branch
 
-## Required GitHub Secrets
+## What It Does
 
-To enable the workflow, you need to configure the following secrets in your GitHub repository settings:
+1. **Builds for Multiple Platforms**: Creates builds for both macOS and Windows (Linux is intentionally skipped)
+2. **Creates Releases**: Automatically creates GitHub releases with version tags
+3. **Uploads Artifacts**: Attaches the built applications to the GitHub release
+4. **Unsigned Builds**: Builds applications without code signing for simplicity
 
-### Required Secrets
-- `GITHUB_TOKEN` - Automatically provided by GitHub (no setup needed)
+## Build Outputs
 
-### Optional Code Signing Secrets (Recommended for Production)
+- **macOS**: 
+  - `.dmg` installer file
+  - `.zip` archive
+- **Windows**: 
+  - `.exe` NSIS installer
 
-#### macOS Code Signing
-- `APPLE_ID` - Your Apple ID email for notarization
-- `APPLE_ID_PASSWORD` - App-specific password for your Apple ID
-- `APPLE_TEAM_ID` - Your Apple Developer Team ID
-- `CSC_LINK` - Base64 encoded .p12 certificate file
-- `CSC_KEY_PASSWORD` - Password for the .p12 certificate
+## No Setup Required
 
-#### Windows Code Signing
-- `CSC_LINK_WIN` - Base64 encoded .p12 certificate file for Windows
-- `CSC_KEY_PASSWORD_WIN` - Password for the Windows certificate
-
-## How to Set Up Secrets
-
-1. Go to your GitHub repository
-2. Click on **Settings** tab
-3. Navigate to **Secrets and variables** → **Actions**
-4. Click **New repository secret**
-5. Add each secret with the exact name listed above
+The workflow is configured to build unsigned applications, so no additional setup or secrets are required. Just push your code to the main branch and the workflow will handle the rest!
 
 ## Workflow Features
 
-- ✅ Builds for macOS (DMG and ZIP)
-- ✅ Builds for Windows (EXE installer)
-- ✅ Automatic version tagging based on package.json
-- ✅ Creates GitHub releases with build artifacts
-- ✅ Supports code signing (when certificates are provided)
-- ✅ Caches dependencies for faster builds
-- ✅ Uploads build artifacts for 30 days retention
+- ✅ Automatic version detection from `package.json`
+- ✅ Git tagging with semantic versioning (`v1.0.0` format)
+- ✅ Cross-platform builds using GitHub's hosted runners
+- ✅ Dependency caching for faster builds
+- ✅ Build artifact retention (30 days)
+- ✅ Unsigned builds (no code signing required)
 
 ## Build Outputs
 
