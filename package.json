@@ -8,7 +8,30 @@
     "dev": "electron . --dev"
   },
   "build": {
-    "appId": "com.yourcompany.ocrscreencapture",
+    "appId": "com.example.ocr-screen-capture",
+    "productName": "OCR Screen Capture",
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      "eng.traineddata",
+      "khm.traineddata",
+      "khm+eng.traineddata",
+      "osd.traineddata"
+    ],
+    "asarUnpack": [
+      "node_modules/tesseract.js/**/*"
+    ],
+    "files": [
+      "**/*",
+      "!src/**/*",
+      "!dist/**/*",
+      "!tests/**/*",
+      "!debug/**/*",
+      "!debug-images/**/*",
+      "!temp/**/*"
+    ],
+    "buildDependenciesFromSource": false,
     "mac": {
       "category": "public.app-category.utilities",
       "target": [
@@ -30,7 +53,7 @@
   "dependencies": {
     "canvas": "^3.2.0",
     "electron-store": "^8.1.0",
-    "tesseract.js": "^5.0.4"
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

@@ -39,10 +39,15 @@ body {
   font-weight: 400;
 }
 
-.settings-icon {
+.header-buttons {
   position: absolute;
   top: 0;
   right: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.settings-icon {
   background: rgba(255, 255, 255, 0.8);
   border: none;
   border-radius: 8px;

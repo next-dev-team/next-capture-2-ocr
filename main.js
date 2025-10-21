@@ -13,8 +13,232 @@ const {
 const path = require("path");
 const fs = require("fs");
 const https = require("https");
+const os = require("os");
 const Tesseract = require("tesseract.js");
 const Store = require("electron-store");
+const LanguageManager = require("./language-manager");
+
+// Function to resolve traineddata files path for both development and production
+function resolveTrainedDataPath() {
+  const possiblePaths = [];
+  
+  try {
+    console.log('🔍 Resolving traineddata path...');
+    console.log(`📦 App packaged: ${app.isPackaged}`);
+    console.log(`🖥️ Platform: ${process.platform}`);
+    console.log(`📁 __dirname: ${__dirname}`);
+    console.log(`📁 process.cwd(): ${process.cwd()}`);
+    
+    // In development: use current directory
+    possiblePaths.push(__dirname);
+    
+    // In production: try app root directory
+    if (app.isPackaged) {
+      console.log(`📁 process.resourcesPath: ${process.resourcesPath}`);
+      console.log(`📁 process.execPath: ${process.execPath}`);
+      
+      // For packaged apps, try the app's resource directory
+      possiblePaths.push(process.resourcesPath);
+      possiblePaths.push(path.join(process.resourcesPath, 'app'));
+      possiblePaths.push(path.join(process.resourcesPath, 'app.asar.unpacked'));
+      
+      // Try the executable directory
+      possiblePaths.push(path.dirname(process.execPath));
+      
+      // Try the app bundle Contents/Resources on macOS
+      if (process.platform === 'darwin') {
+        const appPath = path.dirname(path.dirname(process.execPath));
+        possiblePaths.push(path.join(appPath, 'Resources'));
+        possiblePaths.push(path.join(appPath, 'Resources', 'app'));
+      }
+    }
+    
+    // Always try the current working directory as fallback
+    possiblePaths.push(process.cwd());
+    
+    console.log(`🔍 Testing ${possiblePaths.length} possible paths:`, possiblePaths);
+    
+    // Test each path to see if it exists and is writable
+    for (let i = 0; i < possiblePaths.length; i++) {
+      const testPath = possiblePaths[i];
+      console.log(`🧪 Testing path ${i + 1}/${possiblePaths.length}: ${testPath}`);
+      
+      try {
+        if (fs.existsSync(testPath)) {
+          console.log(`✅ Path exists: ${testPath}`);
+          
+          // Test if we can write to this directory (needed for downloads)
+          const testFile = path.join(testPath, '.write-test');
+          try {
+            fs.writeFileSync(testFile, 'test');
+            fs.unlinkSync(testFile);
+            console.log(`✅ Path is writable: ${testPath}`);
+            console.log(`🎯 Selected traineddata path: ${testPath}`);
+            return testPath;
+          } catch (writeError) {
+            console.log(`⚠️ Path exists but not writable: ${testPath} - ${writeError.message}`);
+            // Continue to next path
+          }
+        } else {
+          console.log(`❌ Path does not exist: ${testPath}`);
+        }
+      } catch (error) {
+        console.log(`❌ Cannot access path: ${testPath} - ${error.message}`);
+        // Continue to next path
+      }
+    }
+    
+    // If no writable path found, fall back to __dirname with warning
+    console.warn('⚠️ No writable path found for traineddata files, using __dirname as fallback');
+    console.warn('⚠️ This may cause issues in production builds');
+    return __dirname;
+    
+  } catch (error) {
+    console.error('❌ Critical error in resolveTrainedDataPath:', error);
+    console.error('❌ Falling back to __dirname');
+    return __dirname;
+  }
+}
+
+// Function to get the full path for a traineddata file
+function getTrainedDataFilePath(languageCode) {
+  const basePath = resolveTrainedDataPath();
+  const filePath = path.join(basePath, `${languageCode}.traineddata`);
+  console.log(`🔍 Traineddata file path for ${languageCode}: ${filePath}`);
+  return filePath;
+}
+
+// Function to resolve traineddata path for Tesseract.js with hybrid approach
+function resolveTrainedDataForTesseract() {
+  try {
+    console.log('🔍 Resolving traineddata for Tesseract.js...');
+    console.log(`📦 App packaged: ${app.isPackaged}`);
+    
+    if (app.isPackaged) {
+      // In production, traineddata files are placed as extraResources directly in Resources folder
+      const resourcesPath = process.resourcesPath;
+      console.log(`📁 Resources path: ${resourcesPath}`);
+      
+      // Check if traineddata files exist in Resources directory (extraResources location)
+      const testFile = path.join(resourcesPath, 'eng.traineddata');
+      console.log(`🔍 Checking for traineddata file: ${testFile}`);
+      
+      if (fs.existsSync(testFile)) {
+        console.log(`✅ Found traineddata in Resources directory: ${resourcesPath}`);
+        return `file://${resourcesPath.replace(/\\/g, '/')}`;
+      }
+      
+      // Fallback: try app.asar.unpacked path (in case of different configuration)
+      const extraResourcesPath = path.join(resourcesPath, 'app.asar.unpacked');
+      console.log(`🔍 Checking fallback extraResources path: ${extraResourcesPath}`);
+      
+      if (fs.existsSync(extraResourcesPath)) {
+        const fallbackTestFile = path.join(extraResourcesPath, 'eng.traineddata');
+        if (fs.existsSync(fallbackTestFile)) {
+          console.log(`✅ Found traineddata in app.asar.unpacked: ${extraResourcesPath}`);
+          return `file://${extraResourcesPath.replace(/\\/g, '/')}`;
+        }
+      }
+      
+      // If local files not found in production, log error and return null
+      console.error('❌ Local traineddata files not found in production!');
+      console.error('❌ This will cause fetch errors when Tesseract tries to download online');
+      console.error('❌ Expected location:', testFile);
+      return null;
+    } else {
+      // In development, use local files
+      const devPath = resolveTrainedDataPath();
+      console.log(`✅ Development mode, using local path: ${devPath}`);
+      return `file://${devPath.replace(/\\/g, '/')}`;
+    }
+  } catch (error) {
+    console.error('❌ Error resolving traineddata for Tesseract.js:', error);
+    return null; // Fall back to online workers
+  }
+}
+
+// Function to get proper writable temp directories for production
+function getWritableTempPath() {
+  try {
+    console.log('🔍 Resolving writable temp path...');
+    
+    // Try Electron's temp directory first (recommended for Electron apps)
+    if (app && app.getPath) {
+      try {
+        const electronTempPath = app.getPath('temp');
+        console.log(`📁 Electron temp path: ${electronTempPath}`);
+        
+        // Create app-specific subdirectory
+        const appTempPath = path.join(electronTempPath, 'ocr-screen-capture');
+        if (!fs.existsSync(appTempPath)) {
+          fs.mkdirSync(appTempPath, { recursive: true });
+        }
+        
+        // Test if writable
+        const testFile = path.join(appTempPath, '.write-test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        
+        console.log(`✅ Using Electron temp path: ${appTempPath}`);
+        return appTempPath;
+      } catch (error) {
+        console.log(`⚠️ Electron temp path failed: ${error.message}`);
+      }
+    }
+    
+    // Fallback to OS temp directory
+    const osTempPath = os.tmpdir();
+    console.log(`📁 OS temp path: ${osTempPath}`);
+    
+    // Create app-specific subdirectory
+    const appTempPath = path.join(osTempPath, 'ocr-screen-capture');
+    if (!fs.existsSync(appTempPath)) {
+      fs.mkdirSync(appTempPath, { recursive: true });
+    }
+    
+    // Test if writable
+    const testFile = path.join(appTempPath, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    
+    console.log(`✅ Using OS temp path: ${appTempPath}`);
+    return appTempPath;
+    
+  } catch (error) {
+    console.error('❌ Critical error in getWritableTempPath:', error);
+    
+    // Last resort: try user home directory
+    try {
+      const homeTempPath = path.join(os.homedir(), '.ocr-screen-capture-temp');
+      if (!fs.existsSync(homeTempPath)) {
+        fs.mkdirSync(homeTempPath, { recursive: true });
+      }
+      console.log(`⚠️ Using home directory fallback: ${homeTempPath}`);
+      return homeTempPath;
+    } catch (homeError) {
+      console.error('❌ Even home directory fallback failed:', homeError);
+      throw new Error('Cannot find any writable temp directory');
+    }
+  }
+}
+
+// Function to get writable debug directory
+function getWritableDebugPath() {
+  try {
+    const tempPath = getWritableTempPath();
+    const debugPath = path.join(tempPath, 'debug');
+    
+    if (!fs.existsSync(debugPath)) {
+      fs.mkdirSync(debugPath, { recursive: true });
+    }
+    
+    console.log(`🐛 Debug path: ${debugPath}`);
+    return debugPath;
+  } catch (error) {
+    console.error('❌ Failed to create debug directory:', error);
+    throw error;
+  }
+}
 
 // Initialize configuration store
 const store = new Store({
@@ -49,7 +273,7 @@ async function downloadLanguageData(languageCode) {
   const baseUrl = "https://github.com/tesseract-ocr/tessdata/raw/main/";
   const url = `${baseUrl}${languageCode}.traineddata`;
 
-  const filePath = path.join(__dirname, `${languageCode}.traineddata`);
+  const filePath = getTrainedDataFilePath(languageCode);
 
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filePath);
@@ -94,7 +318,7 @@ async function handleLanguageDataAvailability(
   const languageInfo = getLanguageInfo(detectedLanguage);
   const { dataFileName, languageName } = languageInfo;
 
-  const dataPath = path.join(__dirname, `${dataFileName}.traineddata`);
+  const dataPath = getTrainedDataFilePath(dataFileName);
 
   // Check if language data file exists
   if (fs.existsSync(dataPath)) {
@@ -329,6 +553,42 @@ async function requestScreenRecordingPermission() {
   }
 }
 
+// Language management window
+let languageManagementWindow;
+
+function createLanguageManagementWindow() {
+  languageManagementWindow = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    center: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    titleBarStyle: "hiddenInset",
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+  });
+
+  languageManagementWindow.loadFile("language-management.html");
+
+  languageManagementWindow.on("closed", () => {
+    languageManagementWindow = null;
+  });
+
+  // Register window for self-capture prevention
+  if (captureManager && captureManager.selfCapturePreventionManager) {
+    captureManager.selfCapturePreventionManager.registerWindow(
+      languageManagementWindow,
+      "language-management"
+    );
+  }
+
+  console.log("🌍 Language management window created");
+}
+
 function createMainWindow() {
   const bounds = store.get("windowBounds");
 
@@ -375,14 +635,17 @@ function createMainWindow() {
 // Capture window creation function removed - now using integrated drag selection in main window
 
 // IPC Handlers
-ipcMain.handle("get-config", () => {
+ipcMain.handle("get-config", async () => {
+  // Get only installed languages for the dropdown
+  const installedLanguages = await languageManager.getInstalledLanguages();
+  
   return {
     language: store.get("language"),
     shortcutKey: store.get("shortcutKey"),
     permissionsGranted: store.get("permissionsGranted"),
     captureMode: store.get("captureMode"),
     autoCopy: store.get("autoCopy"),
-    supportedLanguages,
+    supportedLanguages: installedLanguages,
   };
 });
 
@@ -415,6 +678,86 @@ ipcMain.handle("open-system-preferences", async () => {
   } catch (error) {
     console.error("Failed to open System Preferences:", error);
     return false;
+  }
+});
+
+// Language Management IPC Handlers
+ipcMain.handle("language-is-first-launch", async () => {
+  return await languageManager.isFirstLaunch();
+});
+
+ipcMain.handle("language-get-available", async () => {
+  return await languageManager.getAvailableLanguages();
+});
+
+ipcMain.handle("language-get-installed", async () => {
+  return await languageManager.getInstalledLanguages();
+});
+
+ipcMain.handle("language-get-storage-info", async () => {
+  return await languageManager.getStorageInfo();
+});
+
+ipcMain.handle("language-download", async (event, languageCode) => {
+  try {
+    // Set up progress callback
+    const progressCallback = (progress) => {
+      if (languageManagementWindow && !languageManagementWindow.isDestroyed()) {
+        languageManagementWindow.webContents.send('language-download-progress', languageCode, progress);
+      }
+    };
+
+    await languageManager.downloadLanguage(languageCode, progressCallback);
+    
+    // Notify completion
+    if (languageManagementWindow && !languageManagementWindow.isDestroyed()) {
+      languageManagementWindow.webContents.send('language-download-complete', languageCode, true);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to download language ${languageCode}:`, error);
+    
+    // Notify error
+    if (languageManagementWindow && !languageManagementWindow.isDestroyed()) {
+      languageManagementWindow.webContents.send('language-download-complete', languageCode, false);
+    }
+    
+    throw error;
+  }
+});
+
+ipcMain.handle("language-delete", async (event, languageCode) => {
+  return await languageManager.deleteLanguage(languageCode);
+});
+
+ipcMain.handle("show-main-window", async () => {
+  // Check if at least one language is installed
+  const installedLanguages = await languageManager.getInstalledLanguages();
+  if (installedLanguages.length === 0) {
+    throw new Error("At least one language pack must be installed before using OCR");
+  }
+
+  // Close language management window
+  if (languageManagementWindow && !languageManagementWindow.isDestroyed()) {
+    languageManagementWindow.close();
+  }
+
+  // Create or show main window
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+ipcMain.handle("show-language-management", async () => {
+  if (!languageManagementWindow || languageManagementWindow.isDestroyed()) {
+    createLanguageManagementWindow();
+  } else {
+    languageManagementWindow.show();
+    languageManagementWindow.focus();
   }
 });
 
@@ -658,18 +1001,10 @@ async function processOCR(imageData) {
       throw new Error("Image buffer is empty");
     }
 
-    // Create temp directory if it doesn't exist
+    // Get writable temp and debug directories (production-safe)
     const fs = require("fs");
-    const tempDir = path.join(__dirname, "temp");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // Create debug directory for permanent image storage
-    const debugDir = path.join(__dirname, "debug-images");
-    if (!fs.existsSync(debugDir)) {
-      fs.mkdirSync(debugDir, { recursive: true });
-    }
+    const tempDir = getWritableTempPath();
+    const debugDir = getWritableDebugPath();
 
     // Save temporary file with timestamp to avoid conflicts
     const timestamp = Date.now();
@@ -749,32 +1084,79 @@ async function processOCR(imageData) {
     // Process with Tesseract with enhanced options
     console.log("🔍 Starting Tesseract OCR with language:", finalLanguage);
 
-    // Handle language data availability and download
-    let ocrLanguage = await handleLanguageDataAvailability(
-      finalLanguage,
-      selectedLanguage
-    );
+    // Use only installed languages - no automatic downloads
+    const installedLanguages = await languageManager.getInstalledLanguages();
+    
+    // Ensure installedLanguages is an array before calling map
+    if (!Array.isArray(installedLanguages)) {
+      console.error('❌ installedLanguages is not an array:', installedLanguages);
+      throw new Error('Failed to get installed languages. Please check language manager configuration.');
+    }
+    
+    const installedCodes = installedLanguages.map(lang => lang.code);
+    
+    let ocrLanguage = selectedLanguage;
+    
+    // If auto-detection was used, check if detected language is installed
+    if (selectedLanguage === "auto") {
+      if (installedCodes.includes(finalLanguage)) {
+        ocrLanguage = finalLanguage;
+      } else {
+        // Fall back to first installed language
+        ocrLanguage = installedCodes[0] || "eng";
+        console.log(`⚠️ Detected language ${finalLanguage} not installed, using ${ocrLanguage}`);
+      }
+    } else {
+      // Verify selected language is installed
+      if (!installedCodes.includes(selectedLanguage)) {
+        ocrLanguage = installedCodes[0] || "eng";
+        console.log(`⚠️ Selected language ${selectedLanguage} not installed, using ${ocrLanguage}`);
+      }
+    }
 
     console.log("🎯 Final OCR language:", ocrLanguage);
 
-    // Create a worker with proper configuration for local language data
-    const worker = await Tesseract.createWorker(ocrLanguage, 1, {
-      langPath: path.join(__dirname), // Use local language data files
-      logger: (m) => {
-        if (m.status === "recognizing text") {
-          console.log(
-            `🔍 Tesseract progress: ${Math.round(m.progress * 100)}%`
-          );
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            try {
-              mainWindow.webContents.send("ocr-progress", m);
-            } catch (error) {
-              console.error("Failed to send ocr-progress:", error);
-            }
-          }
-        }
-      },
-    });
+    // Additional validation: ensure ocrLanguage is not undefined, null, or empty
+    if (!ocrLanguage || typeof ocrLanguage !== 'string' || ocrLanguage.trim() === '') {
+      console.error('❌ OCR language is invalid after processing:', ocrLanguage);
+      console.error('❌ installedCodes:', installedCodes);
+      console.error('❌ selectedLanguage:', selectedLanguage);
+      console.error('❌ finalLanguage:', finalLanguage);
+      throw new Error(`Invalid OCR language determined: ${ocrLanguage}. This indicates a configuration issue.`);
+    }
+
+    // Use language manager to const langsArr = langs.split('+');get the correct path for the language
+    const languageDataPath = await languageManager.getLanguageDataPath(ocrLanguage);
+    
+    if (!languageDataPath) {
+      throw new Error(`Language data not found for ${ocrLanguage}. Please download the language pack first.`);
+    }
+
+    const workerOptions = {
+      langPath: languageDataPath,
+      cachePath: languageDataPath, // Use same path for cache
+      gzip: false, // Disable gzip to avoid additional downloads
+      cacheMethod: 'none', // Disable caching mechanisms that might trigger downloads
+      // Remove logger function to prevent DataCloneError - functions cannot be cloned for web workers
+    };
+
+    console.log(`🔒 Using offline language data: ${languageDataPath}`);
+
+    // Create worker with additional offline enforcement
+    console.log(`🔧 Creating Tesseract worker with options:`, workerOptions);
+    
+    // Validate language parameter before passing to Tesseract
+    if (!ocrLanguage || typeof ocrLanguage !== 'string' || ocrLanguage.trim() === '') {
+      console.error('❌ Invalid OCR language parameter:', ocrLanguage);
+      throw new Error(`Invalid language parameter: ${ocrLanguage}. Expected a non-empty string.`);
+    }
+
+    console.log(`🔍 Validated OCR language parameter: "${ocrLanguage}" (type: ${typeof ocrLanguage})`);
+
+    // CRITICAL FIX: Use Tesseract.js v6 API - createWorker now takes language as first parameter
+    // In v6, loadLanguage() and initialize() methods were removed
+    console.log(`🔄 Creating Tesseract worker with language: ${ocrLanguage}`);
+    const worker = await Tesseract.createWorker(ocrLanguage, workerOptions);
 
     const {
       data: { text, confidence },
@@ -1271,6 +1653,7 @@ class CaptureManager {
         processingWin.webContents.send("process-image", {
           bounds,
           imageDataUrl,
+          debugPath: getWritableDebugPath(), // Pass writable debug path
         });
       });
 
@@ -1506,11 +1889,27 @@ ipcMain.on("capture-error", (event, errorMessage) => {
   }
 });
 
+// Initialize language manager
+let languageManager;
+
 app.whenReady().then(async () => {
+  // Initialize language manager
+  languageManager = new LanguageManager();
+  await languageManager.initialize();
+
   // Check permissions on startup
   await checkScreenRecordingPermission();
 
-  createMainWindow();
+  // Check if this is first launch (no languages installed)
+  const isFirstLaunch = await languageManager.isFirstLaunch();
+  
+  if (isFirstLaunch) {
+    // Create language management window for first launch
+    createLanguageManagementWindow();
+  } else {
+    // Create main window normally
+    createMainWindow();
+  }
 
   const shortcutKey = store.get("shortcutKey");
   globalShortcut.register(shortcutKey, () => {

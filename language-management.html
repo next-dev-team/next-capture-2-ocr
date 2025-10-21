@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Language Management - OCR Screen Capture</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Language Management Specific Styles */
+        .language-management-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .header-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .header-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .header-subtitle {
+            font-size: 16px;
+            color: #6b7280;
+            margin: 5px 0 0 0;
+        }
+
+        .back-button {
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-button:hover {
+            background: #e5e7eb;
+            border-color: #9ca3af;
+        }
+
+        .status-banner {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status-banner.error {
+            background: #fee2e2;
+            border-color: #ef4444;
+        }
+
+        .status-banner.success {
+            background: #d1fae5;
+            border-color: #10b981;
+        }
+
+        .status-banner.info {
+            background: #dbeafe;
+            border-color: #3b82f6;
+        }
+
+        .status-text {
+            font-size: 14px;
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .languages-table-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            margin-bottom: 30px;
+        }
+
+        .table-header {
+            background: #f9fafb;
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .table-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .languages-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .languages-table th {
+            background: #f9fafb;
+            padding: 12px 20px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .languages-table td {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f3f4f6;
+            vertical-align: middle;
+        }
+
+        .languages-table tr:hover {
+            background: #f9fafb;
+        }
+
+        .language-flag {
+            font-size: 24px;
+            margin-right: 12px;
+        }
+
+        .language-name {
+            font-weight: 500;
+            color: #1f2937;
+        }
+
+        .language-code {
+            font-size: 12px;
+            color: #6b7280;
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+        }
+
+        .file-size {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-badge.installed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-badge.available {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .status-badge.downloading {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-badge.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .action-button {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-button.download {
+            background: #2563eb;
+            color: white;
+        }
+
+        .action-button.download:hover {
+            background: #1d4ed8;
+        }
+
+        .action-button.download:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .action-button.delete {
+            background: #ef4444;
+            color: white;
+        }
+
+        .action-button.delete:hover {
+            background: #dc2626;
+        }
+
+        .action-button.delete:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .action-button.redownload {
+            background: #059669;
+            color: white;
+        }
+
+        .action-button.redownload:hover {
+            background: #047857;
+        }
+
+        .progress-container {
+            width: 100%;
+            max-width: 200px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #2563eb;
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+            text-align: center;
+        }
+
+        .storage-info {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .storage-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0 0 16px 0;
+        }
+
+        .storage-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .storage-stat {
+            text-align: center;
+            padding: 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        .storage-stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .storage-stat-label {
+            font-size: 14px;
+            color: #6b7280;
+            margin: 4px 0 0 0;
+        }
+
+        .first-launch-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .first-launch-modal {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .first-launch-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0 0 16px 0;
+        }
+
+        .first-launch-text {
+            font-size: 16px;
+            color: #6b7280;
+            line-height: 1.6;
+            margin: 0 0 32px 0;
+        }
+
+        .first-launch-button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .first-launch-button:hover {
+            background: #1d4ed8;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- First Launch Modal -->
+    <div class="first-launch-overlay hidden" id="firstLaunchOverlay">
+        <div class="first-launch-modal">
+            <h2 class="first-launch-title">🌍 Welcome to OCR Screen Capture</h2>
+            <p class="first-launch-text">
+                To get started, you need to download at least one language pack for text recognition. 
+                Choose from the available languages below and download the ones you need.
+            </p>
+            <button class="first-launch-button" id="getStartedBtn">
+                Get Started
+            </button>
+        </div>
+    </div>
+
+    <div class="language-management-container">
+        <!-- Header Section -->
+        <div class="header-section">
+            <div>
+                <h1 class="header-title">🌍 Language Management</h1>
+                <p class="header-subtitle">Download and manage OCR language packs</p>
+            </div>
+            <button class="back-button" id="backToMainBtn">
+                ← Back to OCR
+            </button>
+        </div>
+
+        <!-- Status Banner -->
+        <div class="status-banner" id="statusBanner">
+            <p class="status-text" id="statusText"></p>
+        </div>
+
+        <!-- Storage Information -->
+        <div class="storage-info">
+            <h3 class="storage-title">📊 Storage Usage</h3>
+            <div class="storage-stats">
+                <div class="storage-stat">
+                    <p class="storage-stat-value" id="totalLanguages">0</p>
+                    <p class="storage-stat-label">Installed Languages</p>
+                </div>
+                <div class="storage-stat">
+                    <p class="storage-stat-value" id="totalSize">0 MB</p>
+                    <p class="storage-stat-label">Total Size</p>
+                </div>
+                <div class="storage-stat">
+                    <p class="storage-stat-value" id="availableLanguages">0</p>
+                    <p class="storage-stat-label">Available to Download</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Languages Table -->
+        <div class="languages-table-container">
+            <div class="table-header">
+                <h3 class="table-title">Available Language Packs</h3>
+            </div>
+            <table class="languages-table">
+                <thead>
+                    <tr>
+                        <th>Language</th>
+                        <th>File Size</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="languagesTableBody">
+                    <!-- Languages will be populated here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        // DOM Elements
+        const firstLaunchOverlay = document.getElementById('firstLaunchOverlay');
+        const getStartedBtn = document.getElementById('getStartedBtn');
+        const backToMainBtn = document.getElementById('backToMainBtn');
+        const statusBanner = document.getElementById('statusBanner');
+        const statusText = document.getElementById('statusText');
+        const languagesTableBody = document.getElementById('languagesTableBody');
+        const totalLanguages = document.getElementById('totalLanguages');
+        const totalSize = document.getElementById('totalSize');
+        const availableLanguages = document.getElementById('availableLanguages');
+
+        let currentLanguages = [];
+        let storageInfo = {};
+
+        // Initialize the page
+        async function initializePage() {
+            try {
+                // Check if this is first launch
+                const isFirstLaunch = await ipcRenderer.invoke('language-is-first-launch');
+                if (isFirstLaunch) {
+                    firstLaunchOverlay.classList.remove('hidden');
+                }
+
+                // Load languages and storage info
+                await loadLanguages();
+                await loadStorageInfo();
+                
+            } catch (error) {
+                console.error('Failed to initialize page:', error);
+                showStatus('error', 'Failed to load language information');
+            }
+        }
+
+        // Load available languages
+        async function loadLanguages() {
+            try {
+                currentLanguages = await ipcRenderer.invoke('language-get-available');
+                renderLanguagesTable();
+                
+            } catch (error) {
+                console.error('Failed to load languages:', error);
+                showStatus('error', 'Failed to load available languages');
+            }
+        }
+
+        // Load storage information
+        async function loadStorageInfo() {
+            try {
+                storageInfo = await ipcRenderer.invoke('language-get-storage-info');
+                updateStorageStats();
+                
+            } catch (error) {
+                console.error('Failed to load storage info:', error);
+            }
+        }
+
+        // Render languages table
+        function renderLanguagesTable() {
+            languagesTableBody.innerHTML = '';
+
+            currentLanguages.forEach(language => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>
+                        <div style="display: flex; align-items: center;">
+                            <span class="language-flag">${language.flag}</span>
+                            <div>
+                                <span class="language-name">${language.name}</span>
+                                <span class="language-code">${language.code}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="file-size">${formatFileSize(language.fileSize)}</span>
+                    </td>
+                    <td>
+                        ${renderStatusBadge(language)}
+                    </td>
+                    <td>
+                        ${renderProgress(language)}
+                    </td>
+                    <td>
+                        ${renderActionButton(language)}
+                    </td>
+                `;
+                languagesTableBody.appendChild(row);
+            });
+        }
+
+        // Render status badge
+        function renderStatusBadge(language) {
+            if (language.isInstalled) {
+                return '<span class="status-badge installed">✅ Installed</span>';
+            } else if (language.downloadProgress && language.downloadProgress.status === 'downloading') {
+                return '<span class="status-badge downloading">📥 Downloading</span>';
+            } else if (language.downloadProgress && language.downloadProgress.status === 'error') {
+                return '<span class="status-badge error">❌ Error</span>';
+            } else {
+                return '<span class="status-badge available">📦 Available</span>';
+            }
+        }
+
+        // Render progress bar
+        function renderProgress(language) {
+            if (language.downloadProgress && language.downloadProgress.status === 'downloading') {
+                const progress = Math.round(language.downloadProgress.progress * 100);
+                return `
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${progress}%"></div>
+                        </div>
+                        <div class="progress-text">${progress}%</div>
+                    </div>
+                `;
+            } else if (language.isInstalled) {
+                return '<span style="color: #10b981; font-size: 14px;">✅ Complete</span>';
+            } else {
+                return '<span style="color: #6b7280; font-size: 14px;">—</span>';
+            }
+        }
+
+        // Render action button
+        function renderActionButton(language) {
+            if (language.isInstalled) {
+                return `
+                    <div style="display: flex; gap: 8px;">
+                        <button class="action-button redownload" onclick="redownloadLanguage('${language.code}')" 
+                                title="Re-download language data">
+                            🔄 Re-download
+                        </button>
+                        <button class="action-button delete" onclick="deleteLanguage('${language.code}')" 
+                                ${currentLanguages.filter(l => l.isInstalled).length <= 1 ? 'disabled title="Cannot delete the only installed language"' : ''}>
+                            🗑️ Delete
+                        </button>
+                    </div>
+                `;
+            } else if (language.downloadProgress && language.downloadProgress.status === 'downloading') {
+                return `
+                    <button class="action-button download" disabled>
+                        <span class="loading-spinner"></span>
+                        Downloading
+                    </button>
+                `;
+            } else {
+                return `
+                    <button class="action-button download" onclick="downloadLanguage('${language.code}')">
+                        📥 Download
+                    </button>
+                `;
+            }
+        }
+
+        // Update storage statistics
+        function updateStorageStats() {
+            const installedCount = currentLanguages.filter(lang => lang.isInstalled).length;
+            const availableCount = currentLanguages.filter(lang => !lang.isInstalled).length;
+            
+            totalLanguages.textContent = installedCount;
+            totalSize.textContent = storageInfo.formattedTotalSize || '0 B';
+            availableLanguages.textContent = availableCount;
+        }
+
+        // Download language
+        async function downloadLanguage(languageCode) {
+            try {
+                // Update button to loading state immediately
+                const language = currentLanguages.find(lang => lang.code === languageCode);
+                if (language) {
+                    language.downloadProgress = { status: 'downloading', progress: 0 };
+                    renderLanguagesTable();
+                }
+                
+                showStatus('info', `Starting download for ${getLanguageName(languageCode)}...`);
+                
+                await ipcRenderer.invoke('language-download', languageCode);
+                
+                // Refresh the page data
+                await loadLanguages();
+                await loadStorageInfo();
+                
+                showStatus('success', `Successfully downloaded ${getLanguageName(languageCode)}!`);
+                
+            } catch (error) {
+                console.error('Download failed:', error);
+                
+                // Provide more specific error messages
+                let errorMessage = error.message;
+                if (errorMessage.includes('HTTP 302') || errorMessage.includes('HTTP 301')) {
+                    errorMessage = 'Download URL redirected. This has been fixed, please try again.';
+                } else if (errorMessage.includes('timeout')) {
+                    errorMessage = 'Download timed out. Please check your internet connection and try again.';
+                } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('network')) {
+                    errorMessage = 'Network error. Please check your internet connection and try again.';
+                } else if (errorMessage.includes('already installed')) {
+                    errorMessage = 'This language is already installed.';
+                } else if (errorMessage.includes('already in progress')) {
+                    errorMessage = 'Download is already in progress for this language.';
+                }
+                
+                showStatus('error', `Failed to download ${getLanguageName(languageCode)}: ${errorMessage}`);
+                
+                // Refresh to update error state
+                await loadLanguages();
+            }
+        }
+
+        // Re-download language
+        async function redownloadLanguage(languageCode) {
+            try {
+                const languageName = getLanguageName(languageCode);
+                
+                // Confirm re-download
+                const confirmed = confirm(`Re-download ${languageName}? This will replace the existing language pack with a fresh copy.`);
+                if (!confirmed) return;
+                
+                // Update button to loading state immediately
+                const language = currentLanguages.find(lang => lang.code === languageCode);
+                if (language) {
+                    language.downloadProgress = { status: 'downloading', progress: 0 };
+                    renderLanguagesTable();
+                }
+                
+                showStatus('info', `Re-downloading ${languageName}...`);
+                
+                // Delete first, then download
+                await ipcRenderer.invoke('language-delete', languageCode);
+                await ipcRenderer.invoke('language-download', languageCode);
+                
+                // Refresh the page data
+                await loadLanguages();
+                await loadStorageInfo();
+                
+                showStatus('success', `Successfully re-downloaded ${languageName}!`);
+                
+            } catch (error) {
+                console.error('Re-download failed:', error);
+                showStatus('error', `Failed to re-download ${getLanguageName(languageCode)}: ${error.message}`);
+                
+                // Refresh to update state
+                await loadLanguages();
+            }
+        }
+
+        // Delete language
+        async function deleteLanguage(languageCode) {
+            try {
+                const languageName = getLanguageName(languageCode);
+                
+                // Confirm deletion
+                const confirmed = confirm(`Are you sure you want to delete ${languageName}? This will remove the language pack from your device.`);
+                if (!confirmed) return;
+                
+                showStatus('info', `Deleting ${languageName}...`);
+                
+                await ipcRenderer.invoke('language-delete', languageCode);
+                
+                // Refresh the page data
+                await loadLanguages();
+                await loadStorageInfo();
+                
+                showStatus('success', `Successfully deleted ${languageName}!`);
+                
+            } catch (error) {
+                console.error('Delete failed:', error);
+                showStatus('error', `Failed to delete ${getLanguageName(languageCode)}: ${error.message}`);
+            }
+        }
+
+        // Show status message
+        function showStatus(type, message) {
+            statusBanner.className = `status-banner ${type}`;
+            statusText.textContent = message;
+            statusBanner.style.display = 'block';
+            
+            // Auto-hide after 5 seconds for success/info messages
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    statusBanner.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Get language name by code
+        function getLanguageName(languageCode) {
+            const language = currentLanguages.find(lang => lang.code === languageCode);
+            return language ? language.name : languageCode;
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Event Listeners
+        getStartedBtn.addEventListener('click', () => {
+            firstLaunchOverlay.classList.add('hidden');
+        });
+
+        backToMainBtn.addEventListener('click', async () => {
+            // Check if at least one language is installed before allowing back
+            const installedCount = currentLanguages.filter(lang => lang.isInstalled).length;
+            if (installedCount === 0) {
+                showStatus('error', 'You must download at least one language pack before using OCR');
+                return;
+            }
+            
+            await ipcRenderer.invoke('show-main-window');
+        });
+
+        // Listen for download progress updates
+        ipcRenderer.on('language-download-progress', async (event, languageCode, progress) => {
+            // Update the specific language's progress
+            const language = currentLanguages.find(lang => lang.code === languageCode);
+            if (language) {
+                language.downloadProgress = progress;
+                renderLanguagesTable();
+            }
+        });
+
+        // Listen for download completion
+        ipcRenderer.on('language-download-complete', async (event, languageCode, success) => {
+            if (success) {
+                showStatus('success', `${getLanguageName(languageCode)} downloaded successfully!`);
+            } else {
+                showStatus('error', `Failed to download ${getLanguageName(languageCode)}`);
+            }
+            
+            // Refresh data
+            await loadLanguages();
+            await loadStorageInfo();
+        });
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initializePage);
+    </script>
+</body>
+</html>

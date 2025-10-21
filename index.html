@@ -60,9 +60,18 @@
     <div class="app-header">
       <h1 class="app-title">📸 Capture to OCR</h1>
       <p class="app-subtitle">Extract text from any area of your screen</p>
-      <button class="settings-icon" id="settingsIcon" title="Settings">
-        ⚙️
-      </button>
+      <div class="header-buttons">
+        <button
+          class="settings-icon"
+          id="languageManagementIcon"
+          title="Language Management"
+        >
+          🌍
+        </button>
+        <button class="settings-icon" id="settingsIcon" title="Settings">
+          ⚙️
+        </button>
+      </div>
     </div>
 
     <!-- Permission Banner (hidden by default) -->
@@ -104,6 +113,7 @@
       <div class="config-row">
         <label class="config-label">Language:</label>
         <select class="language-dropdown" id="languageSelect">
+          <option value="auto">🔍 Auto Detect</option>
           <option value="eng">🇺🇸 English</option>
         </select>
       </div>
@@ -183,7 +193,7 @@
     </div>
 
     <script>
-    const { ipcRenderer } = require("electron");
+      const { ipcRenderer } = require("electron");
 
       // DOM Elements
       const captureBtn = document.getElementById("captureBtn");
@@ -200,6 +210,9 @@
         "recheckPermissionBtn"
       );
       const settingsIcon = document.getElementById("settingsIcon");
+      const languageManagementIcon = document.getElementById(
+        "languageManagementIcon"
+      );
       const backIcon = document.getElementById("backIcon");
       const configSection = document.getElementById("configSection");
       const capturePreviewSection = document.getElementById(
@@ -253,6 +266,14 @@
         if (!currentConfig || !currentConfig.supportedLanguages) return;
 
         languageSelect.innerHTML = "";
+        
+        // Add Auto Detect option first
+        const autoOption = document.createElement("option");
+        autoOption.value = "auto";
+        autoOption.textContent = "🔍 Auto Detect";
+        languageSelect.appendChild(autoOption);
+        
+        // Add installed languages
         currentConfig.supportedLanguages.forEach((lang) => {
           const option = document.createElement("option");
           option.value = lang.code;
@@ -370,6 +391,55 @@
         configSection.style.display = "none";
       });
 
+      // Language Management toggle functionality
+      languageManagementIcon.addEventListener("click", async () => {
+        try {
+          await ipcRenderer.invoke("show-language-management");
+        } catch (error) {
+          console.error("Failed to open language management:", error);
+        }
+      });
+
+      // Add language management button functionality
+      const languageManagementBtn = document.createElement("button");
+      languageManagementBtn.textContent = "🌍 Manage Languages";
+      languageManagementBtn.className = "language-management-btn";
+      languageManagementBtn.style.cssText = `
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 12px 20px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: 16px;
+        width: 100%;
+        transition: background 0.2s;
+      `;
+
+      languageManagementBtn.addEventListener("mouseover", () => {
+        languageManagementBtn.style.background = "#1d4ed8";
+      });
+
+      languageManagementBtn.addEventListener("mouseout", () => {
+        languageManagementBtn.style.background = "#2563eb";
+      });
+
+      languageManagementBtn.addEventListener("click", async () => {
+        try {
+          await ipcRenderer.invoke("show-language-management");
+        } catch (error) {
+          console.error("Failed to open language management:", error);
+        }
+      });
+
+      // Add the button to the config section
+      const configContent = configSection.querySelector(".config-content");
+      if (configContent) {
+        configContent.appendChild(languageManagementBtn);
+      }
+
       // IPC Event Listeners
       ipcRenderer.on("trigger-capture", () => {
         if (!captureBtn.disabled) {
@@ -413,27 +483,32 @@
 
       // Enhanced capture preview handler with better error handling
       ipcRenderer.on("capture-preview", (event, imageData, dimensions) => {
-        console.log("Received capture preview:", {imageData: imageData ? "present" : "missing", dimensions});
-        
+        console.log("Received capture preview:", {
+          imageData: imageData ? "present" : "missing",
+          dimensions,
+        });
+
         if (imageData) {
           capturePreview.src = imageData;
-          
+
           // Update dimensions display
           if (dimensions) {
             previewDimensions.textContent = `${dimensions.width} × ${dimensions.height} pixels`;
           }
-          
+
           // Ensure preview section is visible
           capturePreviewSection.style.display = "block";
-          
+
           // Update status to show successful capture
           updateStatus("success", "Area captured successfully!");
-          
+
           // Reset capture state
           captureInProgress = false;
-          
         } else {
-          console.error("Invalid capture preview data:", {imageData, dimensions});
+          console.error("Invalid capture preview data:", {
+            imageData,
+            dimensions,
+          });
           updateStatus("error", "Failed to display capture preview");
           capturePreviewSection.style.display = "none";
           captureInProgress = false;
@@ -457,53 +532,56 @@
       // Enhanced enableDragSelection function with automatic app hiding
       function enableDragSelection() {
         console.log("🎯 Enabling drag selection mode");
-        
+
         if (captureInProgress) return;
-        
+
         // Hide the main application window during drag capture
         if (window.electronAPI && window.electronAPI.hideWindow) {
           window.electronAPI.hideWindow();
         } else if (window.ipcRenderer) {
-          window.ipcRenderer.send('hide-main-window');
+          window.ipcRenderer.send("hide-main-window");
         }
 
         dragOverlay.style.display = "flex";
         dragInstructions.style.display = "block";
         capturePreviewSection.style.display = "none";
-        
+
         // Reset selection state
         isSelecting = false;
         captureInProgress = false;
-        
+
         // Clear any previous selection
         selectionArea.style.display = "none";
         selectionArea.style.left = "0px";
         selectionArea.style.top = "0px";
         selectionArea.style.width = "0px";
         selectionArea.style.height = "0px";
-        
-        updateStatus("info", "Drag to select capture area. Press Escape to cancel.");
+
+        updateStatus(
+          "info",
+          "Drag to select capture area. Press Escape to cancel."
+        );
       }
 
       // Enhanced disableDragSelection function with automatic app restoration
       function disableDragSelection() {
         console.log("🚫 Disabling drag selection mode");
-        
+
         dragOverlay.style.display = "none";
         selectionArea.style.display = "none";
         dragInstructions.style.display = "none";
-        
+
         // Reset selection state
         isSelecting = false;
         captureInProgress = false;
-        
+
         // Restore the main application window
         if (window.electronAPI && window.electronAPI.showWindow) {
           window.electronAPI.showWindow();
         } else if (window.ipcRenderer) {
-          window.ipcRenderer.send('show-main-window');
+          window.ipcRenderer.send("show-main-window");
         }
-        
+
         updateStatus("ready", "Ready to capture");
         resetSelection();
       }
@@ -536,7 +614,7 @@
         // Hide instructions and show preview section
         dragInstructions.style.display = "none";
         capturePreviewSection.style.display = "block";
-        
+
         // Clear any previous preview
         capturePreview.src = "";
         previewDimensions.textContent = "Selecting area...";
@@ -579,7 +657,10 @@
 
         // Validate selection size
         if (width < 10 || height < 10) {
-          updateStatus("error", "Selection too small. Please select a larger area.");
+          updateStatus(
+            "error",
+            "Selection too small. Please select a larger area."
+          );
           disableDragSelection();
           capturePreviewSection.style.display = "none";
           captureInProgress = false;
@@ -588,7 +669,7 @@
 
         // Keep preview visible during capture
         previewDimensions.textContent = `Capturing ${width} × ${height} pixels...`;
-        
+
         await processAreaCapture(left, top, width, height);
       });
 
@@ -603,7 +684,7 @@
       async function processAreaCapture(x, y, width, height) {
         try {
           updateStatus("info", "Capturing selected area...");
-          
+
           // Keep preview section visible during capture
           capturePreviewSection.style.display = "block";
           previewDimensions.textContent = `Processing ${width} × ${height} pixels...`;
@@ -613,20 +694,22 @@
             y: y,
             width: width,
             height: height,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
 
           // Send capture request to main process
           ipcRenderer.send("area-selected", captureData);
-          
+
           // Keep the selection area visible briefly to show what was captured
           setTimeout(() => {
             disableDragSelection();
           }, 500);
-
         } catch (error) {
           console.error("Error in processAreaCapture:", error);
-          updateStatus("error", "Failed to process area capture: " + error.message);
+          updateStatus(
+            "error",
+            "Failed to process area capture: " + error.message
+          );
           disableDragSelection();
           capturePreviewSection.style.display = "none";
           captureInProgress = false;

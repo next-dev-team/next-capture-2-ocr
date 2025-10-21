@@ -10,6 +10,8 @@
         
         // Listen for processing request
         ipcRenderer.on('process-image', (event, data) => {
+            // Store data globally for access in debug code
+            window.processImageData = data;
             
             try {
                 const canvas = document.getElementById('canvas');
@@ -48,7 +50,7 @@
                         // DEBUG: Save the cropped image to see what we're actually processing
                         const fs = require('fs');
                         const path = require('path');
-                        const debugImagePath = path.join(__dirname, 'temp', `debug_cropped_${Date.now()}.png`);
+                        const debugImagePath = path.join(window.processImageData.debugPath, `debug_cropped_${Date.now()}.png`);
                         const base64Data = processedImageData.replace(/^data:image\/png;base64,/, '');
                         fs.writeFileSync(debugImagePath, base64Data, 'base64');
                         console.log('🔍 DEBUG: Cropped image saved to:', debugImagePath);
