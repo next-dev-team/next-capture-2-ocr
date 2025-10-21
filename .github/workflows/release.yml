@@ -37,10 +37,11 @@ jobs:
         with:
           python-version: '3.11'
           
-      - name: Install Visual Studio Build Tools (Windows)
+      - name: Setup Windows build environment
         if: matrix.os == 'windows-latest'
         run: |
-          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional --passive"
+          npm install --global windows-build-tools --vs2015
+        shell: cmd
           
       - name: Build application (unsigned)
         env:
@@ -125,7 +126,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url || format('https://uploads.github.com/repos/{0}/releases/tags/{1}/assets{{?name,label}}', github.repository, steps.create_tag.outputs.tag) }}
-          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}.dmg
+          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}-arm64.dmg
           asset_name: OCR-Screen-Capture-${{ steps.package-version.outputs.version }}-mac.dmg
           asset_content_type: application/octet-stream
           
@@ -136,7 +137,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url || format('https://uploads.github.com/repos/{0}/releases/tags/{1}/assets{{?name,label}}', github.repository, steps.create_tag.outputs.tag) }}
-          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}-mac.zip
+          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}-arm64-mac.zip
           asset_name: OCR-Screen-Capture-${{ steps.package-version.outputs.version }}-mac.zip
           asset_content_type: application/zip
           
