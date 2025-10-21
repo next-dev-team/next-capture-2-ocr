@@ -6,6 +6,12 @@
   box-sizing: border-box;
 }
 
+textarea {
+  border: none;
+  outline: none;
+  resize: none;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
     sans-serif;
@@ -29,7 +35,6 @@ body {
   font-size: 24px;
   font-weight: 600;
   color: #1d1d1f;
-  margin-bottom: 8px;
   letter-spacing: -0.5px;
 }
 
@@ -273,7 +278,8 @@ input:checked + .toggle-slider:before {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   border-radius: 16px;
-  padding: 20px;
+  padding-block: 10px;
+  padding-inline: 20px;
   margin-bottom: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -329,32 +335,14 @@ input:checked + .toggle-slider:before {
   white-space: pre-wrap;
   word-break: break-word;
   color: #1d1d1f;
-  border: 1px solid #e5e5e7;
-  min-height: 120px;
+  min-height: 160px;
+  width: 100%;
 }
 
 .results-text:empty::before {
   content: "Extracted text will appear here...";
   color: #8e8e93;
   font-style: italic;
-}
-
-.shortcut-section {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 0;
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-  padding: 16px 20px;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-bottom: none;
-  text-align: center;
-  z-index: 1000;
 }
 
 .shortcut-text {
@@ -499,8 +487,8 @@ input:checked + .toggle-slider:before {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 16px;
+  padding: 10px;
+  margin-bottom: 5px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
@@ -514,7 +502,7 @@ input:checked + .toggle-slider:before {
 
 .capture-preview-image {
   max-width: 100%;
-  max-height: 200px;
+  max-height: 160px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(0, 0, 0, 0.1);

@@ -59,17 +59,26 @@
 
     <div class="app-header">
       <h1 class="app-title">📸 Capture to OCR</h1>
-      <p class="app-subtitle">Extract text from any area of your screen</p>
+      <div style="margin-top: 5px">
+        <p class="app-subtitle" style="margin-bottom: 5px">
+          Extract text from any area of your screen
+        </p>
+        <div class="shortcut-keys">
+          <span class="key">⌘</span>
+          <span class="key">Shift</span>
+          <span class="key">2</span>
+        </div>
+      </div>
       <div class="header-buttons">
+        <button class="settings-icon" id="settingsIcon" title="Settings">
+          ⚙️
+        </button>
         <button
           class="settings-icon"
           id="languageManagementIcon"
           title="Language Management"
         >
           🌍
-        </button>
-        <button class="settings-icon" id="settingsIcon" title="Settings">
-          ⚙️
         </button>
       </div>
     </div>
@@ -179,18 +188,11 @@
           Copy
         </button>
       </div>
-      <div class="results-text" id="resultsText"></div>
+      <div contenteditable="true" class="results-text" id="resultsText"></div>
     </div>
 
     <!-- Shortcut Section -->
-    <div class="shortcut-section">
-      <span class="shortcut-text">Global Shortcut:</span>
-      <div class="shortcut-keys">
-        <span class="key">⌘</span>
-        <span class="key">Shift</span>
-        <span class="key">2</span>
-      </div>
-    </div>
+    <!-- <div class="shortcut-section"></div> -->
 
     <script>
       const { ipcRenderer } = require("electron");
@@ -266,13 +268,13 @@
         if (!currentConfig || !currentConfig.supportedLanguages) return;
 
         languageSelect.innerHTML = "";
-        
+
         // Add Auto Detect option first
         const autoOption = document.createElement("option");
         autoOption.value = "auto";
         autoOption.textContent = "🔍 Auto Detect";
         languageSelect.appendChild(autoOption);
-        
+
         // Add installed languages
         currentConfig.supportedLanguages.forEach((lang) => {
           const option = document.createElement("option");
@@ -443,6 +445,10 @@
       // IPC Event Listeners
       ipcRenderer.on("trigger-capture", () => {
         if (!captureBtn.disabled) {
+          // Clear results text before starting new capture
+          resultsText.textContent = "";
+          copyBtn.style.display = "none";
+
           ipcRenderer.send("start-capture");
         }
       });

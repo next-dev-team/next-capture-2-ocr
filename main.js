@@ -788,8 +788,46 @@ ipcMain.handle("get-display-info", async () => {
   }
 });
 
+// Function to clean up temp folder
+function cleanupTempFolder() {
+  try {
+    const tempDir = getWritableTempPath();
+    console.log("🧹 Cleaning up temp folder:", tempDir);
+    
+    if (fs.existsSync(tempDir)) {
+      const files = fs.readdirSync(tempDir);
+      let cleanedCount = 0;
+      
+      files.forEach(file => {
+        // Skip hidden files and directories
+        if (file.startsWith('.')) return;
+        
+        const filePath = path.join(tempDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (stats.isFile()) {
+            fs.unlinkSync(filePath);
+            cleanedCount++;
+          }
+        } catch (error) {
+          console.warn(`⚠️ Failed to clean up file ${file}:`, error.message);
+        }
+      });
+      
+      if (cleanedCount > 0) {
+        console.log(`🗑️ Cleaned up ${cleanedCount} temporary files`);
+      }
+    }
+  } catch (error) {
+    console.warn("⚠️ Failed to clean up temp folder:", error.message);
+  }
+}
+
 ipcMain.on("start-capture", async () => {
   console.log("🚀 Starting capture process...");
+  
+  // Clean up temp folder before starting new capture
+  cleanupTempFolder();
 
   const hasPermission = await checkScreenRecordingPermission();
   console.log("📋 Screen recording permission:", hasPermission);
