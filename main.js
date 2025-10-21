@@ -698,6 +698,16 @@ ipcMain.handle("language-get-storage-info", async () => {
   return await languageManager.getStorageInfo();
 });
 
+ipcMain.handle("open-folder", async (event, folderPath) => {
+  try {
+    await shell.openPath(folderPath);
+    return true;
+  } catch (error) {
+    console.error("Failed to open folder:", error);
+    throw error;
+  }
+});
+
 ipcMain.handle("language-download", async (event, languageCode) => {
   try {
     // Set up progress callback

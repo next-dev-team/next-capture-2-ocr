@@ -152,6 +152,7 @@ class LanguageManager {
         totalBytes: languageInfo.fileSize,
         startTime: Date.now(),
         errorMessage: null,
+        currentStep: `Preparing download...`,
       });
 
       this.activeDownloads.set(languageCode, downloadId);
@@ -162,60 +163,111 @@ class LanguageManager {
 
       const installedLanguages = this.store.get("installedLanguages", []);
       const requiredLanguages = languageInfo.requiredLanguages;
-      let totalProgress = 0;
+      const totalLanguages = requiredLanguages.length;
+      let completedLanguages = 0;
+
+      // Update initial progress
+      const updateProgress = (step, progress = 0, currentLang = null) => {
+        const overallProgress = (completedLanguages + progress) / totalLanguages;
+        const stepText = currentLang ? 
+          `Downloading ${currentLang} (${Math.round(progress * 100)}%)` : 
+          step;
+        
+        this.downloadProgress.set(languageCode, {
+          ...this.downloadProgress.get(languageCode),
+          progress: overallProgress,
+          bytesDownloaded: Math.floor(languageInfo.fileSize * overallProgress),
+          totalBytes: languageInfo.fileSize,
+          currentStep: stepText,
+        });
+
+        if (progressCallback) {
+          progressCallback({
+            progress: overallProgress,
+            bytesDownloaded: Math.floor(languageInfo.fileSize * overallProgress),
+            totalBytes: languageInfo.fileSize,
+            currentStep: stepText,
+          });
+        }
+      };
 
       // Download each required language if not already installed
       for (let i = 0; i < requiredLanguages.length; i++) {
         const reqLangCode = requiredLanguages[i];
+        const langInfo = this.availableLanguages.find(lang => lang.code === reqLangCode);
+        const langName = langInfo ? langInfo.name : reqLangCode;
 
         if (!installedLanguages.includes(reqLangCode)) {
           console.log(`📥 Downloading required language: ${reqLangCode}`);
+          updateProgress(`Starting download of ${langName}...`, 0, langName);
 
-          // Download the individual language
+          // Download the individual language with proper progress tracking
           await this.downloadLanguage(reqLangCode, (progress) => {
-            // Update combined progress
-            const combinedProgress =
-              (i + progress.progress) / requiredLanguages.length;
-            this.downloadProgress.set(languageCode, {
-              ...this.downloadProgress.get(languageCode),
-              progress: combinedProgress,
-              bytesDownloaded: Math.floor(
-                languageInfo.fileSize * combinedProgress
-              ),
-              totalBytes: languageInfo.fileSize,
-            });
-
-            if (progressCallback) {
-              progressCallback({
-                progress: combinedProgress,
-                bytesDownloaded: Math.floor(
-                  languageInfo.fileSize * combinedProgress
-                ),
-                totalBytes: languageInfo.fileSize,
-              });
-            }
+            updateProgress(`Downloading ${langName}...`, progress.progress, langName);
           });
+
+          // Validate the downloaded language
+          const langFilePath = path.join(this.languagesDirectory, `${reqLangCode}.traineddata`);
+          if (!fs.existsSync(langFilePath)) {
+            throw new Error(`Failed to download ${langName} - file not found after download`);
+          }
+
+          // Validate file integrity if checksum is available
+          if (langInfo && langInfo.checksum) {
+            updateProgress(`Validating ${langName}...`, 1, langName);
+            const isValid = await this.validateLanguageFile(langFilePath, langInfo);
+            if (!isValid) {
+              throw new Error(`Downloaded ${langName} file failed validation`);
+            }
+          }
+
+          console.log(`✅ Successfully downloaded and validated ${langName}`);
         } else {
           console.log(`✅ Required language ${reqLangCode} already installed`);
+          
+          // Still validate existing file
+          const langFilePath = path.join(this.languagesDirectory, `${reqLangCode}.traineddata`);
+          if (!fs.existsSync(langFilePath)) {
+            console.warn(`⚠️ Language ${reqLangCode} marked as installed but file missing, re-downloading...`);
+            // Remove from installed list and re-download
+            const currentInstalled = this.store.get("installedLanguages", []);
+            const filteredInstalled = currentInstalled.filter(lang => lang !== reqLangCode);
+            this.store.set("installedLanguages", filteredInstalled);
+            
+            // Re-download
+            await this.downloadLanguage(reqLangCode, (progress) => {
+              updateProgress(`Re-downloading ${langName}...`, progress.progress, langName);
+            });
+          }
         }
 
-        totalProgress = (i + 1) / requiredLanguages.length;
-        this.downloadProgress.set(languageCode, {
-          ...this.downloadProgress.get(languageCode),
-          progress: totalProgress,
-          bytesDownloaded: Math.floor(languageInfo.fileSize * totalProgress),
-          totalBytes: languageInfo.fileSize,
-        });
+        completedLanguages++;
+        updateProgress(`Completed ${langName}`, 1);
       }
 
-      // Mark combined language as installed
-      const updatedInstalledLanguages = this.store.get(
-        "installedLanguages",
-        []
-      );
-      if (!updatedInstalledLanguages.includes(languageCode)) {
-        updatedInstalledLanguages.push(languageCode);
-        this.store.set("installedLanguages", updatedInstalledLanguages);
+      // Final validation - ensure all required languages are properly installed
+      updateProgress("Finalizing combined language...");
+      const finalInstalledLanguages = this.store.get("installedLanguages", []);
+      const allRequiredInstalled = requiredLanguages.every(reqLang => {
+        const isInstalled = finalInstalledLanguages.includes(reqLang);
+        const filePath = path.join(this.languagesDirectory, `${reqLang}.traineddata`);
+        const fileExists = fs.existsSync(filePath);
+        
+        if (!isInstalled || !fileExists) {
+          console.error(`❌ Required language ${reqLang} not properly installed: installed=${isInstalled}, fileExists=${fileExists}`);
+          return false;
+        }
+        return true;
+      });
+
+      if (!allRequiredInstalled) {
+        throw new Error(`Not all required languages are properly installed for ${languageCode}`);
+      }
+
+      // Mark combined language as installed only after all validations pass
+      if (!finalInstalledLanguages.includes(languageCode)) {
+        finalInstalledLanguages.push(languageCode);
+        this.store.set("installedLanguages", finalInstalledLanguages);
       }
 
       // Update progress to completed
@@ -223,6 +275,7 @@ class LanguageManager {
         ...this.downloadProgress.get(languageCode),
         status: "completed",
         progress: 1,
+        currentStep: "Download completed successfully!",
       });
 
       console.log(
@@ -241,6 +294,7 @@ class LanguageManager {
         ...this.downloadProgress.get(languageCode),
         status: "error",
         errorMessage: error.message,
+        currentStep: `Error: ${error.message}`,
       });
 
       console.error(
@@ -713,46 +767,50 @@ class LanguageManager {
     // Check if it's a combined language (e.g., khm+eng)
     const languageInfo = this.availableLanguages.find(lang => lang.code === languageCode);
     if (languageInfo && languageInfo.isCombined) {
-      // For combined languages, check if all required languages are installed
+      // For combined languages, check if all required languages are installed and files exist
       const installedLanguages = this.store.get("installedLanguages", []);
-      const allRequiredInstalled = languageInfo.requiredLanguages.every(reqLang => 
-        installedLanguages.includes(reqLang)
-      );
       
-      if (!allRequiredInstalled) {
-        console.warn(`⚠️ Combined language ${languageCode} requires: ${languageInfo.requiredLanguages.join(', ')}`);
+      // First check if the combined language is marked as installed
+      if (!installedLanguages.includes(languageCode)) {
+        console.warn(`⚠️ Combined language ${languageCode} not marked as installed`);
         return null;
       }
       
-      // Check multiple possible locations for combined language file
-      const possiblePaths = [
-        // User data languages directory
-        path.join(this.languagesDirectory, `${languageCode}.traineddata`),
-        // Project root directory (development)
-        path.join(process.cwd(), `${languageCode}.traineddata`),
-        // App resources directory (production)
-        path.join(__dirname, `${languageCode}.traineddata`)
-      ];
-      
-      for (const filePath of possiblePaths) {
-        if (fs.existsSync(filePath)) {
-          console.log(`✅ Found combined language file: ${filePath}`);
-          // Mark as installed if not already
-          if (!installedLanguages.includes(languageCode)) {
-            installedLanguages.push(languageCode);
-            this.store.set("installedLanguages", installedLanguages);
-          }
-          return path.dirname(filePath); // Return directory path for Tesseract
+      // Verify all required individual languages are properly installed
+      const missingLanguages = [];
+      for (const reqLang of languageInfo.requiredLanguages) {
+        const isInstalled = installedLanguages.includes(reqLang);
+        const filePath = path.join(this.languagesDirectory, `${reqLang}.traineddata`);
+        const fileExists = fs.existsSync(filePath);
+        
+        if (!isInstalled || !fileExists) {
+          missingLanguages.push({
+            code: reqLang,
+            installed: isInstalled,
+            fileExists: fileExists
+          });
         }
       }
       
-      console.warn(`⚠️ Combined language file not found for ${languageCode} in any location`);
-      return null;
+      if (missingLanguages.length > 0) {
+        console.error(`❌ Combined language ${languageCode} missing required components:`, missingLanguages);
+        
+        // Remove combined language from installed list since it's not properly set up
+        const updatedInstalled = installedLanguages.filter(lang => lang !== languageCode);
+        this.store.set("installedLanguages", updatedInstalled);
+        
+        throw new Error(`Language data not found for ${languageCode}. Please download the language pack first.`);
+      }
+      
+      // All required languages are properly installed, return the directory
+      console.log(`✅ Combined language ${languageCode} verified - all required components available`);
+      return this.languagesDirectory;
     }
 
     // For regular languages, check if installed
     const installedLanguages = this.store.get("installedLanguages", []);
     if (!installedLanguages.includes(languageCode)) {
+      console.warn(`⚠️ Language ${languageCode} not marked as installed`);
       return null;
     }
 
@@ -764,6 +822,11 @@ class LanguageManager {
     // Verify file exists
     if (!fs.existsSync(filePath)) {
       console.warn(`⚠️ Language file not found: ${filePath}`);
+      
+      // Remove from installed list since file is missing
+      const updatedInstalled = installedLanguages.filter(lang => lang !== languageCode);
+      this.store.set("installedLanguages", updatedInstalled);
+      
       return null;
     }
 
@@ -917,11 +980,82 @@ class LanguageManager {
   }
 
   /**
+   * Validate a combined language installation
+   */
+  async validateCombinedLanguage(languageCode) {
+    try {
+      const languageInfo = this.availableLanguages.find(lang => lang.code === languageCode);
+      if (!languageInfo || !languageInfo.isCombined) {
+        return false;
+      }
+
+      const installedLanguages = this.store.get("installedLanguages", []);
+      
+      // Check if combined language is marked as installed
+      if (!installedLanguages.includes(languageCode)) {
+        console.warn(`⚠️ Combined language ${languageCode} not marked as installed`);
+        return false;
+      }
+
+      // Validate all required individual languages
+      for (const reqLang of languageInfo.requiredLanguages) {
+        // Check if marked as installed
+        if (!installedLanguages.includes(reqLang)) {
+          console.warn(`⚠️ Required language ${reqLang} not marked as installed for ${languageCode}`);
+          return false;
+        }
+
+        // Check if file exists
+        const filePath = path.join(this.languagesDirectory, `${reqLang}.traineddata`);
+        if (!fs.existsSync(filePath)) {
+          console.warn(`⚠️ Required language file missing: ${filePath}`);
+          return false;
+        }
+
+        // Validate file integrity if possible
+        const reqLangInfo = this.availableLanguages.find(lang => lang.code === reqLang);
+        if (reqLangInfo && !(await this.validateLanguageFile(filePath, reqLangInfo))) {
+          console.warn(`⚠️ Required language file corrupted: ${filePath}`);
+          return false;
+        }
+      }
+
+      console.log(`✅ Combined language ${languageCode} validation passed`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error validating combined language ${languageCode}:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Validate downloaded language file
    */
   async validateLanguageFile(filePath, languageInfo) {
     try {
+      if (!fs.existsSync(filePath)) {
+        return false;
+      }
+
+      // Check file size first (quick check)
       const stats = fs.statSync(filePath);
+      if (languageInfo.size && stats.size !== languageInfo.size) {
+        console.warn(
+          `⚠️ File size mismatch for ${filePath}: expected ${languageInfo.size}, got ${stats.size}`
+        );
+        return false;
+      }
+
+      // If checksum is available, validate it
+      if (languageInfo.checksum) {
+        const actualChecksum = await this.calculateChecksum(filePath);
+        if (actualChecksum !== languageInfo.checksum) {
+          console.warn(
+            `⚠️ Checksum mismatch for ${filePath}: expected ${languageInfo.checksum}, got ${actualChecksum}`
+          );
+          return false;
+        }
+      }
 
       // Basic validation: check if file exists and has reasonable size
       const actualSize = stats.size;

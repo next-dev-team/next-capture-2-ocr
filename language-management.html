@@ -302,6 +302,52 @@
             margin: 4px 0 0 0;
         }
 
+        .download-path-info {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .download-path-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin: 0 0 8px 0;
+        }
+
+        .download-path-value {
+            font-size: 13px;
+            color: #6b7280;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: #ffffff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            margin: 0 0 12px 0;
+            word-break: break-all;
+        }
+
+        .path-action-button {
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .path-action-button:hover {
+            background: #e5e7eb;
+            border-color: #9ca3af;
+        }
+
         .first-launch-overlay {
             position: fixed;
             top: 0;
@@ -423,6 +469,13 @@
                     <p class="storage-stat-label">Available to Download</p>
                 </div>
             </div>
+            <div class="download-path-info">
+                <p class="download-path-label">📁 Download Location:</p>
+                <p class="download-path-value" id="downloadPath">Loading...</p>
+                <button class="path-action-button" id="openPathBtn" onclick="openDownloadPath()">
+                    📂 Open Folder
+                </button>
+            </div>
         </div>
 
         <!-- Languages Table -->
@@ -500,6 +553,7 @@
             try {
                 storageInfo = await ipcRenderer.invoke('language-get-storage-info');
                 updateStorageStats();
+                updateDownloadPath();
                 
             } catch (error) {
                 console.error('Failed to load storage info:', error);
@@ -556,12 +610,14 @@
         function renderProgress(language) {
             if (language.downloadProgress && language.downloadProgress.status === 'downloading') {
                 const progress = Math.round(language.downloadProgress.progress * 100);
+                const currentStep = language.downloadProgress.currentStep || 'Downloading...';
                 return `
                     <div class="progress-container">
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${progress}%"></div>
                         </div>
                         <div class="progress-text">${progress}%</div>
+                        <div class="progress-step" style="font-size: 11px; color: #6b7280; margin-top: 2px;">${currentStep}</div>
                     </div>
                 `;
             } else if (language.isInstalled) {
@@ -610,6 +666,30 @@
             totalLanguages.textContent = installedCount;
             totalSize.textContent = storageInfo.formattedTotalSize || '0 B';
             availableLanguages.textContent = availableCount;
+        }
+
+        // Update download path display
+        function updateDownloadPath() {
+            const downloadPathElement = document.getElementById('downloadPath');
+            if (storageInfo && storageInfo.directory) {
+                downloadPathElement.textContent = storageInfo.directory;
+            } else {
+                downloadPathElement.textContent = 'Path not available';
+            }
+        }
+
+        // Open download folder
+        async function openDownloadPath() {
+            try {
+                if (storageInfo && storageInfo.directory) {
+                    await ipcRenderer.invoke('open-folder', storageInfo.directory);
+                } else {
+                    showStatus('error', 'Download path not available');
+                }
+            } catch (error) {
+                console.error('Failed to open download folder:', error);
+                showStatus('error', 'Failed to open download folder');
+            }
         }
 
         // Download language
