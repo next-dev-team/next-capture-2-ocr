@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  release:
+    if: github.event_name == 'push' || (github.event.pull_request.merged == true)
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+        
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+        
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Python (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install Visual Studio Build Tools (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional --passive"
+        
+      - name: Set up code signing (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          # Import certificate if provided
+          if [ -n "$CSC_LINK" ]; then
+            echo "Code signing certificate found"
+            # The certificate will be automatically used by electron-builder
+          else
+            echo "No code signing certificate provided - building unsigned"
+          fi
+          
+      - name: Build application
+        env:
+          # macOS code signing
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Windows code signing
+          CSC_LINK_WIN: ${{ secrets.CSC_LINK_WIN }}
+          CSC_KEY_PASSWORD_WIN: ${{ secrets.CSC_KEY_PASSWORD_WIN }}
+          # GitHub token for releases
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            npm run build -- --mac --publish=never
+          else
+            npm run build -- --win --publish=never
+          fi
+        shell: bash
+        
+      - name: Get package version
+        id: package-version
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+        
+      - name: Create Release Tag
+        if: matrix.os == 'macos-latest'
+        id: create_tag
+        run: |
+          TAG="v${{ steps.package-version.outputs.version }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Creating new tag $TAG"
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Create GitHub Release
+        if: matrix.os == 'macos-latest' && steps.create_tag.outputs.tag_exists == 'false'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag.outputs.tag }}
+          release_name: Release ${{ steps.create_tag.outputs.tag }}
+          body: |
+            ## Changes
+            - Auto-generated release from ${{ github.event_name }} to main branch
+            
+            ## Downloads
+            - **macOS**: Download the `.dmg` file for macOS installation
+            - **Windows**: Download the `.exe` file for Windows installation
+            
+            ## Installation
+            ### macOS
+            1. Download the `.dmg` file
+            2. Open the downloaded file
+            3. Drag the app to your Applications folder
+            
+            ### Windows
+            1. Download the `.exe` file
+            2. Run the installer
+            3. Follow the installation wizard
+            
+          draft: false
+          prerelease: false
+          
+      - name: Upload macOS DMG
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url || format('https://uploads.github.com/repos/{0}/releases/tags/{1}/assets{{?name,label}}', github.repository, steps.create_tag.outputs.tag) }}
+          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}.dmg
+          asset_name: OCR-Screen-Capture-${{ steps.package-version.outputs.version }}-mac.dmg
+          asset_content_type: application/octet-stream
+          
+      - name: Upload macOS ZIP
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url || format('https://uploads.github.com/repos/{0}/releases/tags/{1}/assets{{?name,label}}', github.repository, steps.create_tag.outputs.tag) }}
+          asset_path: ./dist/OCR Screen Capture-${{ steps.package-version.outputs.version }}-mac.zip
+          asset_name: OCR-Screen-Capture-${{ steps.package-version.outputs.version }}-mac.zip
+          asset_content_type: application/zip
+          
+      - name: Upload Windows EXE
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ format('https://uploads.github.com/repos/{0}/releases/tags/v{1}/assets{{?name,label}}', github.repository, steps.package-version.outputs.version) }}
+          asset_path: ./dist/OCR Screen Capture Setup ${{ steps.package-version.outputs.version }}.exe
+          asset_name: OCR-Screen-Capture-Setup-${{ steps.package-version.outputs.version }}-win.exe
+          asset_content_type: application/octet-stream
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+          retention-days: 30

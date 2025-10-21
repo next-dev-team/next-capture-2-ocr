@@ -40,6 +40,18 @@
       ],
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   },
   "keywords": [
