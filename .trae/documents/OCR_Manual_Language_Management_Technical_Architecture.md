@@ -46,35 +46,43 @@ graph TD
 
 ## 2. Technology Description
 
-- Frontend: Electron + HTML5 + CSS3 + JavaScript ES6+
-- Backend: Node.js (Electron Main Process)
-- Storage: File System + electron-store for configuration
-- OCR Engine: Tesseract.js with local language packs
-- Download: Node.js HTTPS module
+* Frontend: Electron + HTML5 + CSS3 + JavaScript ES6+
+
+* Backend: Node.js (Electron Main Process)
+
+* Storage: File System + electron-store for configuration
+
+* OCR Engine: Tesseract.js with local language packs
+
+* Download: Node.js HTTPS module
 
 ## 3. Route Definitions
 
-| Route | Purpose |
-|-------|---------|
+| Route                | Purpose                                         |
+| -------------------- | ----------------------------------------------- |
 | /language-management | Language pack download and management interface |
-| /main-ocr | Main OCR capture and processing interface |
-| /settings | Application configuration and preferences |
-| /first-setup | Initial language setup wizard for new users |
+| /main-ocr            | Main OCR capture and processing interface       |
+| /settings            | Application configuration and preferences       |
+| /first-setup         | Initial language setup wizard for new users     |
 
 ## 4. API Definitions
 
 ### 4.1 Core API
 
 Language Management APIs
+
 ```
 GET /api/languages/available
 ```
+
 Response:
-| Param Name | Param Type | Description |
-|------------|------------|-------------|
-| languages | Array<Language> | List of available language packs |
+
+| Param Name | Param Type      | Description                      |
+| ---------- | --------------- | -------------------------------- |
+| languages  | Array<Language> | List of available language packs |
 
 Language Object:
+
 ```typescript
 interface Language {
   code: string;        // Language code (e.g., 'eng', 'khm')
@@ -89,48 +97,59 @@ interface Language {
 ```
 POST /api/languages/download
 ```
+
 Request:
-| Param Name | Param Type | isRequired | Description |
-|------------|------------|------------|-------------|
-| languageCode | string | true | Language code to download |
+
+| Param Name   | Param Type | isRequired | Description               |
+| ------------ | ---------- | ---------- | ------------------------- |
+| languageCode | string     | true       | Language code to download |
 
 Response:
-| Param Name | Param Type | Description |
-|------------|------------|-------------|
-| success | boolean | Download initiation status |
-| downloadId | string | Unique download identifier |
+
+| Param Name | Param Type | Description                |
+| ---------- | ---------- | -------------------------- |
+| success    | boolean    | Download initiation status |
+| downloadId | string     | Unique download identifier |
 
 ```
 GET /api/languages/installed
 ```
+
 Response:
-| Param Name | Param Type | Description |
-|------------|------------|-------------|
-| languages | Array<string> | List of installed language codes |
+
+| Param Name | Param Type    | Description                      |
+| ---------- | ------------- | -------------------------------- |
+| languages  | Array<string> | List of installed language codes |
 
 ```
 DELETE /api/languages/:code
 ```
+
 Response:
-| Param Name | Param Type | Description |
-|------------|------------|-------------|
-| success | boolean | Deletion status |
+
+| Param Name | Param Type | Description     |
+| ---------- | ---------- | --------------- |
+| success    | boolean    | Deletion status |
 
 OCR Processing APIs
+
 ```
 POST /api/ocr/process
 ```
+
 Request:
-| Param Name | Param Type | isRequired | Description |
-|------------|------------|------------|-------------|
-| imageData | string | true | Base64 encoded image data |
-| language | string | true | Language code for OCR |
+
+| Param Name | Param Type | isRequired | Description               |
+| ---------- | ---------- | ---------- | ------------------------- |
+| imageData  | string     | true       | Base64 encoded image data |
+| language   | string     | true       | Language code for OCR     |
 
 Response:
-| Param Name | Param Type | Description |
-|------------|------------|-------------|
-| text | string | Extracted text |
-| confidence | number | OCR confidence score |
+
+| Param Name | Param Type | Description          |
+| ---------- | ---------- | -------------------- |
+| text       | string     | Extracted text       |
+| confidence | number     | OCR confidence score |
 
 ## 5. Server Architecture Diagram
 
@@ -237,6 +256,7 @@ erDiagram
 ### 6.2 Data Definition Language
 
 Language Pack Storage (File System)
+
 ```javascript
 // Language pack directory structure
 userData/
@@ -252,6 +272,7 @@ userData/
 ```
 
 Configuration Store (electron-store)
+
 ```javascript
 // settings.json structure
 {
@@ -275,6 +296,7 @@ Configuration Store (electron-store)
 ```
 
 Language Manifest (JSON)
+
 ```javascript
 // manifest.json - tracks installed languages
 {
@@ -302,6 +324,7 @@ Language Manifest (JSON)
 ```
 
 Download Progress Tracking
+
 ```javascript
 // In-memory download tracking
 const downloadProgress = {
@@ -317,6 +340,7 @@ const downloadProgress = {
 ```
 
 IPC Event Definitions
+
 ```javascript
 // Main Process -> Renderer Process
 ipcMain.handle('language-get-available', async () => { /* ... */ });
@@ -330,3 +354,4 @@ ipcMain.emit('download-progress', languageCode, progress);
 ipcMain.emit('download-complete', languageCode, success);
 ipcMain.emit('download-error', languageCode, error);
 ```
+
